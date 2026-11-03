@@ -243,7 +243,7 @@ body.welcome-mode #btnNewDoc,body.welcome-mode #btnNewManual,body.welcome-mode #
 </head>
 <body>
 <header class="top"><div class="top-in">
-  <div class="brand"><span class="logo">€</span>Gestione Multe <span class="tag" id="verTag" title="Versione dell'applicazione">V9</span></div>
+  <div class="brand"><span class="logo">€</span>Gestione Multe <span class="tag" id="verTag" title="Versione dell'applicazione">V10</span></div>
   <nav class="tabs"><button data-view="multe" class="on">Multe</button><button data-view="sintesi">Sintesi</button></nav>
   <div class="spacer"></div>
   <div class="arch" id="archStatus"></div>
@@ -257,9 +257,10 @@ body.welcome-mode #btnNewDoc,body.welcome-mode #btnNewManual,body.welcome-mode #
 <input type="file" id="filePick" multiple accept="application/pdf,image/*,.zip,application/zip,.eml,message/rfc822" class="hidden">
 <script>
 'use strict';
-const APP_VERSION = 'V9';
+const APP_VERSION = 'V10';
 const APP_DATE = '2026-09-30'; // V3
 const CHANGELOG = [
+  ['V10', '2026-11-03', 'Ricevute di invio del ricorso (PEC di accettazione/consegna, raccomandata) riconosciute dall\'AI con data, modalità e destinatario, e abbinate alla multa anche dalla home (verbale, bozza in sospeso, destinatario); la bozza diventa l\'evento di invio con tutti i file collegati. Nuovo "PDF per invio": ricorso + allegati scelti e ordinati + documento d\'identità in un unico PDF salvato nella cartella. Con una bozza di ricorso l\'attività in evidenza diventa l\'invio del ricorso. Soglia "Urgente" portata a 15 giorni.'],
   ['V9', '2026-11-02', 'Versione online su GitHub Pages: archivio su OneDrive (Microsoft Graph, accesso con account Microsoft), salvataggio con controllo dei conflitti tra dispositivi e unione automatica delle modifiche, nessun dato nel file della pagina; impostazioni con pulsante Salva per sezione; versione per telefono con caricamento da fotocamera e compressione delle foto.'],
   ['V8', '2026-10-31', 'Controllo informativo sul pagamento: avviso se lo sconto del 30% è stato applicato oltre i 5 giorni dalla notifica (al caricamento della ricevuta e come nota nella scheda), senza nuove scadenze né effetti sulla chiusura della pratica.'],
   ['V7', '2026-10-31', 'Riconoscimento del veicolo: targhe imparate dalle multe registrate e confronto del modello per parole intere; "Veicolo a noleggio" deciso dall\'impostazione del veicolo e non dall\'AI; pagamento ricavato in automatico dalla ricevuta caricata insieme al verbale.'],
@@ -331,7 +332,7 @@ function checkSconto(notifica, ridotto, entro60, pagato, dataPag) {
   if (Math.abs(pagato - ridotto) <= 0.5) return `Pagati ${eur(pagato)} il ${fd(dataPag)}, ${gg} giorni dopo la notifica del ${fd(notifica)}: se era l'importo scontato del 30%, lo sconto valeva solo fino al ${fd(lim)} (importo entro 60 gg non indicato, differenza non calcolabile).`;
   return null;
 }
-function levelOf(days) { return days < 0 ? 'scaduta' : days <= 7 ? 'urgente' : days <= 30 ? 'vicina' : 'ok'; }
+function levelOf(days) { return days < 0 ? 'scaduta' : days <= 15 ? 'urgente' : days <= 30 ? 'vicina' : 'ok'; }
 function evSorted(m) { return [...(m.eventi || [])].map((e, i) => ({e, i})).sort((a, b) => ((a.e.data || '9999') < (b.e.data || '9999') ? -1 : (a.e.data || '9999') > (b.e.data || '9999') ? 1 : a.i - b.i)).map(x => x.e); }
 const later = (a, b) => a && (!b || (a.data || '') >= (b.data || ''));
 
@@ -385,6 +386,14 @@ function analizza(m) {
     push('Pagamento ridotto del 30% (5 gg)', addDays(m.dataNotifica, 5), inoltrata); sc[sc.length - 1].opt = 'sconto';
     push('Ricorso al Giudice di Pace (30 gg)', addDays(m.dataNotifica, 30), inoltrata); if (m.percorso !== 'gdp') sc[sc.length - 1].opt = 'gdp';
     push('Pagamento o ricorso al Prefetto (60 gg)', addDays(m.dataNotifica, 60), inoltrata);
+    const bz = bozzaPendente(m);
+    if (bz) {
+      label = 'Ricorso da inviare';
+      const gdp = /^gdp/.test(bz.sede || '') || m.percorso === 'gdp';
+      sc.forEach(x => { x.opt = x.opt || 'altro'; });
+      const main = sc.find(x => gdp ? /Giudice di Pace/.test(x.label) : /Prefetto \(60/.test(x.label));
+      if (main) { delete main.opt; main.label = gdp ? 'Deposito ricorso al Giudice di Pace (30 gg)' : 'Invio ricorso al Prefetto (60 gg)'; main.soft = false; }
+    }
   } else {
     fase = 'attesa_notifica'; label = 'In attesa di notifica';
     if (m.dataInfrazione) push('Termine notifica (90 gg dall\'infrazione)', addDays(m.dataInfrazione, 90), true);
@@ -397,7 +406,7 @@ function analizza(m) {
   let esito = '';
   if (chiusa) esito = fase === 'accolto' ? 'Ricorso accolto' : fase === 'silenzio' ? 'Accolto per silenzio-assenso' : fase === 'pagata' ? label : (m.chiusuraNota || 'Chiusa');
   sc.sort((a, b) => a.date < b.date ? -1 : 1);
-  sc.forEach(s => s.level = s.soft ? (s.days < 0 ? 'attesa' : (s.days <= 7 ? 'urgente' : 'attesa')) : levelOf(s.days));
+  sc.forEach(s => s.level = s.soft ? (s.days < 0 ? 'attesa' : (s.days <= 15 ? 'urgente' : 'attesa')) : levelOf(s.days));
   let prossima = null;
   if (!chiusa) {
     const main = sc.filter(s => !s.opt && !s.obbligo);
@@ -428,7 +437,7 @@ function analizza(m) {
   if (!m.dataNotifica && m.eventi?.length === 0 && !chiusa && m.dataInfrazione && diffDays(m.dataInfrazione, T) > 100) flags.push({lv: 'ok', t: 'Nessuna notifica registrata dopo oltre 100 giorni.'});
   (m.anomalie || []).forEach(a => flags.push({lv: 'vicina', t: a, dati: true}));
   const obblighi = chiusa ? [] : sc.filter(s => s.obbligo && s !== prossima);
-  const sconto = chiusa ? null : sc.find(s => s.opt === 'sconto' && s.days >= 0);
+  const sconto = chiusa || fase === 'da_gestire' && label === 'Ricorso da inviare' ? null : sc.find(s => s.opt === 'sconto' && s.days >= 0);
   return {fase, label, sc, prossima, chiusa, esito, pagato, flags, ggNot, obblighi, sconto};
 }
 
@@ -823,7 +832,7 @@ async function scanFolders() {
   const out = [];
   if (!fs) { state.folders = out; return; }
   for (const it of await fsList('')) {
-    if (!it.isFolder || it.name.startsWith('_') || it.name.startsWith('.')) continue;
+    if (!it.isFolder || it.name.startsWith('_') || it.name.startsWith('.') || /^documenti$/i.test(it.name)) continue;
     out.push({path: it.name, name: it.name});
     if (/^(19|20)\d\d$/.test(it.name)) { try { for (const s2 of await fsList(it.name)) if (s2.isFolder) out.push({path: it.name + '/' + s2.name, name: s2.name, parent: it.name}); } catch (e) {} }
   }
@@ -1159,7 +1168,7 @@ function refreshDerived(m) {
     ${m.dataNotifica || m.modalitaNotifica ? `<div class="tl-item"><span class="d num">${fdShort(m.dataNotifica)}</span><span class="x">Notifica verbale${m.modalitaNotifica ? ' <span class="muted">· ' + esc(m.modalitaNotifica) + '</span>' : ''}${a.ggNot !== null ? ` <span class="muted">(${a.ggNot} gg dopo)</span>` : ''}</span><span></span></div>` : ''}
     ${ev.map(e => `<div class="tl-item"><span class="d num">${e.data ? fdShort(e.data) : '<span class="muted">s.d.</span>'}</span>
       <span class="x"><b>${esc(EV[e.tipo]?.l || e.tipo)}</b>${e.importo != null ? ' · <span class="num">' + eur(e.importo) + '</span>' : ''}${e.modalita ? ' <span class="muted">· ' + esc(e.modalita) + '</span>' : ''}${e.destinatario ? ` <span class="muted">· ${e.destinatario === 'organo' ? 'tramite organo accertatore' : 'direttamente al Prefetto'}</span>` : ''}
-      ${e.doc ? `<div class="small">📎 <a href="#" data-doc="${esc(e.doc)}">${esc(e.doc)}</a></div>` : ''}${e.note ? `<div class="n">${esc(e.note)}</div>` : ''}</span>
+      ${[e.doc, ...(e.docs || [])].filter(Boolean).map(d => `<div class="small">📎 <a href="#" data-doc="${esc(d)}">${esc(d)}</a></div>`).join('')}${e.note ? `<div class="n">${esc(e.note)}</div>` : ''}</span>
       <span><button class="btn small ghost" data-edit="${e.id}">Modifica</button></span></div>`).join('')}`;
   $$('[data-edit]').forEach(b => b.onclick = () => showEvForm(m, m.eventi.find(e => e.id === b.dataset.edit)));
   $$('#dTl [data-doc]').forEach(a => a.onclick = e => { e.preventDefault(); openDocByName(m, a.dataset.doc); });
@@ -1277,8 +1286,8 @@ function modal(title, bodyHTML, footHTML, cls = '', onClose = null) {
 function closeModal(silent) { const cb = silent ? null : state._mc; state._mc = null; $('#modalBg')?.remove(); if (cb) cb(); }
 
 /* ============================== AI: lettura documenti ============================== */
-const DOC_TIPI = {verbale: 'Verbale di accertamento', ordinanza: 'Ordinanza-ingiunzione Prefetto', ingiunzione: 'Ingiunzione di pagamento', cartella: 'Cartella esattoriale', sollecito: 'Avviso / sollecito', ricevuta_pagamento: 'Ricevuta di pagamento', accoglimento: 'Accoglimento ricorso / archiviazione', sentenza: 'Sentenza Giudice di Pace', convocazione_udienza: 'Convocazione udienza', ricorso: 'Ricorso (copia inviata)', avviso_ricezione: 'Avviso di avvenuta ricezione (SEND/PEC)', avviso_pagamento: 'Avviso di pagamento pagoPA', modulo_conducente: 'Modulo comunicazione dati conducente', altro: 'Altro'};
-const DOC2EV = {ordinanza: 'ordinanza', ingiunzione: 'ingiunzione', cartella: 'ingiunzione', sollecito: 'sollecito', ricevuta_pagamento: 'pagamento_verbale', accoglimento: 'accolto', sentenza: 'respinto', convocazione_udienza: 'udienza', ricorso: 'ricorso_prefetto', altro: 'nota', verbale: 'nota', avviso_ricezione: 'nota', avviso_pagamento: 'nota', modulo_conducente: 'nota'};
+const DOC_TIPI = {verbale: 'Verbale di accertamento', ordinanza: 'Ordinanza-ingiunzione Prefetto', ingiunzione: 'Ingiunzione di pagamento', cartella: 'Cartella esattoriale', sollecito: 'Avviso / sollecito', ricevuta_pagamento: 'Ricevuta di pagamento', accoglimento: 'Accoglimento ricorso / archiviazione', sentenza: 'Sentenza Giudice di Pace', convocazione_udienza: 'Convocazione udienza', ricorso: 'Ricorso (copia inviata)', ricevuta_invio_pec: 'Ricevuta di invio/consegna PEC', ricevuta_raccomandata: 'Ricevuta di raccomandata', avviso_ricezione: 'Avviso di avvenuta ricezione (SEND/PEC)', avviso_pagamento: 'Avviso di pagamento pagoPA', modulo_conducente: 'Modulo comunicazione dati conducente', altro: 'Altro'};
+const DOC2EV = {ordinanza: 'ordinanza', ingiunzione: 'ingiunzione', cartella: 'ingiunzione', sollecito: 'sollecito', ricevuta_pagamento: 'pagamento_verbale', accoglimento: 'accolto', sentenza: 'respinto', convocazione_udienza: 'udienza', ricorso: 'ricorso_prefetto', ricevuta_invio_pec: 'ricorso_prefetto', ricevuta_raccomandata: 'ricorso_prefetto', altro: 'nota', verbale: 'nota', avviso_ricezione: 'nota', avviso_pagamento: 'nota', modulo_conducente: 'nota'};
 const EXTRACT_TOOL = {
   name: 'registra_documento',
   description: 'Registra i dati estratti da un documento relativo a una multa stradale.',
@@ -1296,6 +1305,10 @@ const EXTRACT_TOOL = {
     articolo_cds: {type: 'string', description: 'Es. "art. 7 c. 14" o "art. 142 c. 8".'},
     importo_ridotto_5gg: {type: 'number', description: 'Importo da pagare entro 5 giorni con riduzione del 30% (spese incluse), se indicato.'},
     importo_60gg: {type: 'number', description: 'Importo da pagare entro 60 giorni (spese incluse).'},
+    invio_data: {type: 'string', description: 'Per ricevute di invio (PEC di accettazione/consegna, raccomandata): data di invio o consegna, YYYY-MM-DD.'},
+    invio_modalita: {type: 'string', enum: ['PEC', 'raccomandata A/R', 'consegna a mano', 'altro']},
+    invio_destinatario: {type: 'string', description: 'Destinatario dell\'invio come scritto, es. "Prefettura di Varese", "Polizia Locale di Saronno", "Giudice di Pace di Busto Arsizio".'},
+    invio_codice: {type: 'string', description: 'Codice della raccomandata o identificativo del messaggio PEC, se presente.'},
     pagamento_importo: {type: 'number', description: 'Se tra i documenti c\'è una ricevuta di pagamento: importo pagato.'},
     pagamento_data: {type: 'string', description: 'Se c\'è una ricevuta: data del pagamento, YYYY-MM-DD.'},
     pagamento_modalita: {type: 'string', description: 'Se c\'è una ricevuta: canale di pagamento, es. CBILL, pagoPA, bonifico, carta.'},
@@ -1322,6 +1335,7 @@ const EXTRACT_PROMPT = `Leggi il documento o i documenti allegati: riguardano un
 Se ci sono più documenti sono allegati della stessa comunicazione (es. una notifica SEND o PEC): i campi principali (tipo_documento, numeri, date, importi) vanno riferiti al documento più importante (di solito il verbale o l'atto), mentre in "documenti" classifica ciascun allegato e proponi un nome file chiaro. Un avviso di avvenuta ricezione non è il verbale.
 Per sentenze, ordinanze, ingiunzioni e altri atti successivi, compila numero_verbale, data_infrazione, luogo_comune e targa del verbale ORIGINARIO se citati nel testo.
 Valuta inoltre con spirito critico i possibili vizi del verbale (campo possibili_vizi), indicando onestamente la solidità; non inventare fatti.
+Se il documento è la prova dell'invio di un ricorso (ricevuta PEC di accettazione o di avvenuta consegna, ricevuta di raccomandata, cartolina di ritorno), usa tipo ricevuta_invio_pec o ricevuta_raccomandata e compila invio_data, invio_modalita, invio_destinatario e invio_codice; se nel messaggio o negli allegati compare il numero del verbale contestato, mettilo in numero_verbale.
 Se tra i documenti c'è una ricevuta di pagamento, compila sempre pagamento_importo, pagamento_data e pagamento_modalita, anche quando il documento principale è il verbale.
 Regole: date in formato YYYY-MM-DD; importi in euro come numero; non inventare nulla, lascia vuoti i campi assenti; il numero di verbale va trascritto esattamente. Se il documento è una comunicazione PEC con allegato il verbale, considera il verbale. Per il tipo di infrazione usa la categoria più vicina.`;
 function fileToB64(file) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = () => rej(r.error); r.readAsDataURL(file); }); }
@@ -1362,11 +1376,27 @@ async function callClaude(content, tool, maxTokens = 3000) {
   }
   throw new Error('Risposta AI senza dati strutturati');
 }
+const isInvioDoc = x => ['ricevuta_invio_pec', 'ricevuta_raccomandata'].includes(x.tipo_documento);
+/** Nota "bozza di ricorso" ancora senza evento di invio successivo. */
+function bozzaPendente(m) {
+  const ev = evSorted(m); let b = null;
+  for (const e of ev) { if (e.tipo === 'nota' && /^Bozza di ricorso generata/.test(e.note || '')) b = e; else if (b && (e.tipo === 'ricorso_prefetto' || e.tipo === 'ricorso_gdp')) b = null; }
+  return b;
+}
 function matchCandidates(x) {
   const nums = [x.numero_verbale, ...(x.numeri_collegati || [])].filter(Boolean);
   const keyNums = nums.flatMap(verbTokens);
+  const invio = isInvioDoc(x), dest = norm(x.invio_destinatario || '');
   return state.db.multe.map(m => {
     let s = 0;
+    if (invio) {
+      if (bozzaPendente(m)) s += 7;
+      if (dest) {
+        const sd = (state.db.settings.sedi || {})[norm(m.luogo)] || {};
+        const nomi = [m.luogo, m.ente, sd.prefettura, sd.gdp, sd.ente].filter(Boolean).map(norm);
+        if (nomi.some(n => n && (' ' + dest + ' ').includes(' ' + n + ' '))) s += 4;
+      }
+    }
     const md = (m.nVerbale || '').replace(/\D+/g, ' ');
     const mt = verbTokens(m.nVerbale);
     if (keyNums.some(t => mt.includes(t))) s += 10;
@@ -1517,10 +1547,16 @@ function showReview(files, x, err, ctx, resolve) {
     cartella: '', collegataA: '', pendenze: [], chiusa: false, note: '', eventi: [], origine: 'Caricato da ' + (ctx.zipName || file.name)
   };
   if (x.tipo_infrazione === 'Mancata comunicazione dati' && cands.length) draft.collegataA = cands[0].m.id;
-  const evTipo = DOC2EV[x.tipo_documento] || 'nota';
+  const evTipo = isInvioDoc(x) && /giudice/i.test(x.invio_destinatario || '') ? 'ricorso_gdp' : (DOC2EV[x.tipo_documento] || 'nota');
+  const invioDest = /prefett/i.test(x.invio_destinatario || '') ? 'prefetto' : /polizia|comando|comune|organo|municipal/i.test(x.invio_destinatario || '') ? 'organo' : 'prefetto';
   const evDraft = {tipo: x.tipo_documento === 'sentenza' && /accolt/i.test(x.esito || '') ? 'accolto' : evTipo,
     data: x.tipo_documento === 'convocazione_udienza' ? (x.data_udienza || '') : (ctx.pecDate || x.data_notifica || x.data_documento || todayISO()), importo: x.importo_documento ?? null,
     note: [DOC_TIPI[x.tipo_documento], x.numero_atto ? 'n. ' + x.numero_atto : '', x.sintesi].filter(Boolean).join(' – ')};
+  if (isInvioDoc(x)) {
+    evDraft.data = x.invio_data || ctx.pecDate || evDraft.data;
+    evDraft.modalita = x.invio_modalita || (x.tipo_documento === 'ricevuta_invio_pec' ? 'PEC' : 'raccomandata A/R');
+    evDraft.note = ['Ricorso inviato', x.invio_destinatario ? 'a ' + x.invio_destinatario : '', x.invio_codice ? 'codice ' + x.invio_codice : ''].filter(Boolean).join(' · ');
+  }
   const ok = state.dirStatus === 'ok';
   const body = `
     ${err ? `<div class="banner ${err.code === 'NOKEY' ? 'info' : 'warn'}">${esc(err.message)}</div>` : ''}
@@ -1548,7 +1584,9 @@ function showReview(files, x, err, ctx, resolve) {
       <div class="fld"><label>Evento da registrare</label><select id="rvEvTipo">${Object.entries(EV).map(([k, v]) => `<option value="${k}" ${k === evDraft.tipo && !(isVerbale && ctx.multa !== undefined) ? 'selected' : ''}>${v.l}</option>`).join('')}<option value="__none" ${isVerbale ? 'selected' : ''}>Nessun evento (solo archivia i file)</option></select></div>
       <div class="fld"><label>Data evento</label><input type="date" id="rvEvData" value="${esc(evDraft.data)}"></div>
       <div class="fld"><label>Importo €</label><input type="number" step="0.01" id="rvEvImp" value="${evDraft.importo ?? ''}"></div>
-      <div class="fld"><label>Modalità</label><input id="rvEvMod" list="dlModPag"></div>
+      <div class="fld"><label>Modalità</label><input id="rvEvMod" list="dlModPag" value="${esc(evDraft.modalita || '')}"></div>
+      <div class="fld full" id="rvEvDestW"><label>Ricorso inviato</label><select id="rvEvDest"><option value="prefetto" ${invioDest !== 'organo' ? 'selected' : ''}>direttamente al Prefetto (termine 210 gg)</option><option value="organo" ${invioDest === 'organo' ? 'selected' : ''}>tramite organo accertatore (termine 180 gg)</option></select></div>
+      ${isInvioDoc(x) ? `<div class="fld full small muted" id="rvBozzaInfo"></div>` : ''}
       <div class="fld full"><label>Note evento</label><textarea id="rvEvNote" rows="2">${esc(evDraft.note)}</textarea></div>
       ${x.tipo_documento ? `<div class="fld chk full" style="padding-top:0"><input type="checkbox" id="rvFill" checked><label for="rvFill">Completa i campi vuoti della multa con i dati letti (ente, articolo, targa, importi…)</label></div>` : ''}
     </div></div></div>
@@ -1566,6 +1604,11 @@ function showReview(files, x, err, ctx, resolve) {
   $$('input[name=rvMode]').forEach(r => r.onchange = syncMode); syncMode();
   $('#rv_vettura').addEventListener('change', e => { const r = guessResp(e.target.value); if (r && !$('#rv_responsabile').value) $('#rv_responsabile').value = r; });
   $('#rvSkip').onclick = () => { resolve('skip'); closeModal(); };
+  const syncInvio = () => {
+    const w = $('#rvEvDestW'); if (w) w.classList.toggle('hidden', $('#rvEvTipo').value !== 'ricorso_prefetto');
+    const bi = $('#rvBozzaInfo'); if (bi) { const t = getM($('#rvTarget').value); const b = t && bozzaPendente(t); bi.innerHTML = b ? `📝 La bozza di ricorso del ${fd(b.data)}${b.doc ? ' (' + esc(b.doc) + ')' : ''} diventerà l'evento di invio, con Word e ricevuta collegati.` : ''; }
+  };
+  $('#rvEvTipo').addEventListener('change', syncInvio); $('#rvTarget').addEventListener('change', syncInvio); syncInvio();
   const updPayCheck = () => {
     const box = $('#rvPayCheck'); if (!box) return;
     const md = $('input[name=rvMode]:checked').value;
@@ -1627,9 +1670,17 @@ function showReview(files, x, err, ctx, resolve) {
           const imp = $('#rvEvImp').value; if (imp !== '') e.importo = Math.round(parseFloat(imp) * 100) / 100;
           if ($('#rvEvMod').value.trim()) e.modalita = $('#rvEvMod').value.trim();
           if ($('#rvEvNote').value.trim()) e.note = $('#rvEvNote').value.trim();
-          if (t === 'ricorso_prefetto') e.destinatario = 'prefetto';
-          if (docName) e.doc = docName;
-          m.eventi.push(e);
+          if (t === 'ricorso_prefetto') e.destinatario = $('#rvEvDest')?.value || 'prefetto';
+          const bz = (t === 'ricorso_prefetto' || t === 'ricorso_gdp') ? bozzaPendente(m) : null;
+          if (bz) {
+            // la bozza diventa l'evento di invio: Word del ricorso + ricevuta
+            Object.assign(bz, {tipo: t, data: e.data, modalita: e.modalita, note: e.note, ...(e.destinatario ? {destinatario: e.destinatario} : {})});
+            const word = bz.doc; bz.doc = docName || word; bz.docs = [word, ...(bz.docs || []), ...(savedNames || []).map(n => n.n)].filter((v, i, a) => v && v !== bz.doc && a.indexOf(v) === i);
+            if (!bz.docs.length) delete bz.docs;
+          } else {
+            if (docName) e.doc = docName;
+            m.eventi.push(e);
+          }
           if (EV[t].pay) m.pendenze = (m.pendenze || []).filter(p => p !== 'Ricevuta pagamento');
         }
       }
@@ -1727,7 +1778,8 @@ function openRicorso(m) {
     ric: {nomeCompleto: resp.nomeCompleto || '', nascita: resp.nascita || '', cf: resp.cf || '', residenza: resp.residenza || '', pec: resp.pec || ''},
     motivi: [...(m.viziAI || []).map(v => ({k: 'ai', t: v.titolo + ` (solidità ${v.solidita})`, x: v.testo_motivo, on: v.solidita === 'alta', ai: true})), ...Object.entries(MOTIVI).map(([k, v]) => ({k, t: v.t, x: v.x(m, a), on: sugg.has(k), ai: false}))],
     allegati: ['Copia del verbale impugnato', 'Copia della relata di notifica', 'Copia del documento d\'identità del ricorrente'],
-    ordNum: '', ordAtto: ''
+    ordNum: '', ordAtto: '',
+    pdf: {src: 'testo', files: null, sel: [], id: true}
   };
   const ordEv = evSorted(m).filter(e => e.tipo === 'ordinanza').pop();
   if (ordEv?.note) { const mm = ordEv.note.match(/n\.\s*([\w/.-]+)/); if (mm) R.ordNum = mm[1]; }
@@ -1771,10 +1823,11 @@ function openRicorso(m) {
           <div class="fld"><label>Luogo</label><input id="rLuogoF" value="${esc(R.luogoFirma)}"></div>
           <div class="fld"><label>Data</label><input type="date" id="rDataF" value="${esc(R.dataFirma)}"></div>
         </div></div></div>
+        <div class="sec"><h4>PDF per invio (ricorso + allegati in un unico file)</h4><div class="in" id="rPdfSec">${pdfSecHTML(m, R)}</div></div>
       </div>
       <div class="sticky"><div class="small muted" style="margin-bottom:6px">Anteprima — bozza da rileggere prima dell'invio</div><div class="preview" id="rPrev">${blocksToHTML(componiRicorso(m, R))}</div></div>
     </div>`;
-    const bg = modal('Genera ricorso', body, `<label class="small" style="margin-right:auto;display:flex;gap:6px;align-items:center"><input type="checkbox" id="rMark"> Registra anche l'evento «ricorso inviato» con data di oggi</label><button class="btn" id="rCancel">Chiudi</button><button class="btn primary" id="rGen">Genera Word</button>`);
+    const bg = modal('Genera ricorso', body, `<label class="small" style="margin-right:auto;display:flex;gap:6px;align-items:center"><input type="checkbox" id="rMark"> Registra subito come inviato oggi <span class="muted">(altrimenti caricherai poi la ricevuta di invio)</span></label><button class="btn" id="rCancel">Chiudi</button><button class="btn" id="rGen">Genera Word</button><button class="btn primary" id="rPdf">Genera PDF per invio</button>`);
     const mb = $('.modal-b', bg);
     const upd = () => { $('#rPrev').innerHTML = blocksToHTML(componiRicorso(m, R)); };
     const bind = (sel, key, prop = 'value', rerender = false) => { const el = $(sel); if (el) el.addEventListener(rerender ? 'change' : 'input', () => { R[key] = el[prop]; rerender ? reRender() : upd(); }); };
@@ -1794,34 +1847,142 @@ function openRicorso(m) {
     $('#rAll').addEventListener('input', e => { R.allegati = e.target.value.split('\n').map(s => s.trim()).filter(Boolean); upd(); });
     $('#rCancel').onclick = closeModal;
     $('#rAi').onclick = () => aiMotivi(m, R, reRender);
+    bindPdfSec(m, R, reRender);
+    if (!R.pdf.files && fs && m.cartella) listFiles(m).then(fl => { R.pdf.files = fl.filter(f => /\.(pdf|jpe?g|png)$/i.test(f.name)); R.pdf.sel = R.pdf.files.filter(f => /verbal|relata|notific|ricezione|avviso/i.test(f.name) && !/ricorso/i.test(f.name)).map(f => f.path); if ($('#rPdfSec')) { $('#rPdfSec').innerHTML = pdfSecHTML(m, R); bindPdfSec(m, R, reRender); } }).catch(() => {});
+    else if (!R.pdf.files) R.pdf.files = [];
+    const commonCommit = () => {
+      if ($('#rSaveAna').checked && R.ricNome) {
+        let r = state.db.settings.responsabili.find(r => r.nome === R.ricNome);
+        if (!r) { r = {nome: R.ricNome}; state.db.settings.responsabili.push(r); }
+        Object.assign(r, R.ric);
+      }
+      if (!m.ente && R.ente) m.ente = R.ente;
+      if (R.sede === 'gdp_verbale') m.percorso = 'gdp';
+      if (m.luogo) { const S = state.db.settings.sedi = state.db.settings.sedi || {}; const k = norm(m.luogo); S[k] = {...(S[k] || {}), ...R.dest, ...(R.prefettura ? {prefettura: R.prefettura} : {}), ...(R.gdpSede ? {gdp: R.gdpSede} : {})}; }
+    };
+    const registra = names => {
+      names = names.filter(Boolean); if (!names.length && !$('#rMark').checked) return;
+      if ($('#rMark').checked) {
+        const tipo = R.sede === 'prefetto' ? 'ricorso_prefetto' : 'ricorso_gdp';
+        const bz = bozzaPendente(m);
+        const e = bz || {id: uid('e')};
+        Object.assign(e, {tipo, data: todayISO(), note: SEDI[R.sede].l.split(' – ')[0]}); if (tipo === 'ricorso_prefetto') e.destinatario = R.viaOrgano ? 'organo' : 'prefetto';
+        const all = [e.doc, ...(e.docs || []), ...names].filter((v, i, a) => v && a.indexOf(v) === i); e.doc = all[0]; if (all.length > 1) e.docs = all.slice(1);
+        if (!bz) m.eventi.push(e);
+      } else {
+        const bz = bozzaPendente(m);
+        if (bz) { const all = [bz.doc, ...(bz.docs || []), ...names].filter((v, i, a) => v && a.indexOf(v) === i); bz.doc = all[0]; bz.docs = all.slice(1); bz.sede = R.sede; if (!bz.docs.length) delete bz.docs; }
+        else m.eventi.push({id: uid('e'), tipo: 'nota', data: todayISO(), note: 'Bozza di ricorso generata (non ancora inviata)', sede: R.sede, doc: names[0], ...(names.length > 1 ? {docs: names.slice(1)} : {})});
+      }
+    };
+    $('#rPdf').onclick = async () => {
+      const btn = $('#rPdf'); btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Creazione PDF…';
+      try {
+        commonCommit();
+        const blob = await buildPdfInvio(m, R);
+        const fname = `Ricorso ${R.sede === 'prefetto' ? 'Prefetto' : 'GdP'} ${R.dataFirma} - ${safeSeg(m.luogo)} ${safeSeg((m.nVerbale || '').replace(/\//g, '-'))}`.trim().slice(0, 100) + ' - per invio.pdf';
+        let savedName = '';
+        if (fs) { try { savedName = await saveFileToMulta(m, blob, fname); } catch (e) { toast('Non salvato in archivio: ' + e.message, 4000); } }
+        download(blob, fname);
+        registra([savedName]);
+        save(m); closeModal(); renderDrawer(m); refreshBehind();
+        toast(savedName ? 'PDF per invio salvato nella cartella della multa e scaricato' : 'PDF scaricato');
+      } catch (e) { btn.disabled = false; btn.textContent = 'Genera PDF per invio'; alert('Errore nella creazione del PDF: ' + e.message); }
+    };
     $('#rGen').onclick = async () => {
       if (!R.motivi.some(x => x.on && x.x.trim())) { if (!confirm('Nessun motivo selezionato. Generare comunque il documento?')) return; }
       const btn = $('#rGen'); btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Generazione…';
       try {
-        if ($('#rSaveAna').checked && R.ricNome) {
-          let r = state.db.settings.responsabili.find(r => r.nome === R.ricNome);
-          if (!r) { r = {nome: R.ricNome}; state.db.settings.responsabili.push(r); }
-          Object.assign(r, R.ric);
-        }
-        if (!m.ente && R.ente) m.ente = R.ente;
-        if (R.sede === 'gdp_verbale') m.percorso = 'gdp';
-        if (m.luogo) { const S = state.db.settings.sedi = state.db.settings.sedi || {}; const k = norm(m.luogo); S[k] = {...(S[k] || {}), ...R.dest, ...(R.prefettura ? {prefettura: R.prefettura} : {}), ...(R.gdpSede ? {gdp: R.gdpSede} : {})}; }
+        commonCommit();
         const blob = await buildDocx(componiRicorso(m, R));
         const fname = `Ricorso ${R.sede === 'prefetto' ? 'Prefetto' : 'GdP'} ${R.dataFirma} - ${safeSeg(m.luogo)} ${safeSeg((m.nVerbale || '').replace(/\//g, '-'))}`.trim().slice(0, 110) + '.docx';
         let savedName = '';
         if (state.dirStatus === 'ok') { try { savedName = await saveFileToMulta(m, blob, fname); } catch (e) { toast('Non salvato in archivio: ' + e.message, 4000); } }
-        const url = URL.createObjectURL(blob); const aEl = document.createElement('a'); aEl.href = url; aEl.download = fname; document.body.appendChild(aEl); aEl.click(); aEl.remove(); setTimeout(() => URL.revokeObjectURL(url), 30000);
-        if ($('#rMark').checked) {
-          const tipo = R.sede === 'prefetto' ? 'ricorso_prefetto' : 'ricorso_gdp';
-          const e = {id: uid('e'), tipo, data: todayISO(), note: SEDI[R.sede].l.split(' – ')[0]}; if (tipo === 'ricorso_prefetto') e.destinatario = R.viaOrgano ? 'organo' : 'prefetto'; if (savedName) e.doc = savedName;
-          m.eventi.push(e);
-        } else if (savedName) m.eventi.push({id: uid('e'), tipo: 'nota', data: todayISO(), note: 'Bozza di ricorso generata (non ancora inviata)', doc: savedName});
+        download(blob, fname);
+        registra([savedName]);
         save(m); closeModal(); renderDrawer(m); refreshBehind();
         toast(savedName ? 'Ricorso salvato nella cartella della multa e scaricato' : 'Ricorso scaricato');
       } catch (e) { btn.disabled = false; btn.textContent = 'Genera Word'; alert('Errore nella generazione: ' + e.message); }
     };
   };
   render();
+}
+/* ---------- PDF per invio ---------- */
+function pdfSecHTML(m, R) {
+  const P = R.pdf;
+  if (!fs) return '<div class="small muted">Archivio non disponibile.</div>';
+  if (!P.files) return '<span class="spinner"></span>';
+  const pdfs = P.files.filter(f => /\.pdf$/i.test(f.name));
+  const resp = state.db.settings.responsabili.find(r => r.nome === R.ricNome) || {};
+  const ord = [...P.sel.map(p => P.files.find(f => f.path === p)).filter(Boolean), ...P.files.filter(f => !P.sel.includes(f.path))];
+  return `<div class="fld"><label>Ricorso</label><select id="rPdfSrc"><option value="testo" ${P.src === 'testo' ? 'selected' : ''}>Genera dal testo di questa finestra</option>${pdfs.map(f => `<option value="${esc(f.path)}" ${P.src === f.path ? 'selected' : ''}>Usa il PDF «${esc(f.name)}» (es. esportato dal Word modificato)</option>`).join('')}</select></div>
+    <div class="small" style="margin:10px 0 4px"><b>Allegati</b> <span class="muted">— spunta e ordina</span></div>
+    ${ord.length ? ord.map(f => { const on = P.sel.includes(f.path); const i = P.sel.indexOf(f.path); return `<div class="file"><input type="checkbox" data-pf="${esc(f.path)}" ${on ? 'checked' : ''}><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(f.name)}">${on ? `<b class="num">${i + 1}.</b> ` : ''}${esc(f.name)}</span>${on ? `<button class="btn small ghost" data-pu="${esc(f.path)}" ${i === 0 ? 'disabled' : ''}>↑</button><button class="btn small ghost" data-pd="${esc(f.path)}" ${i === P.sel.length - 1 ? 'disabled' : ''}>↓</button>` : ''}</div>`; }).join('') : '<div class="small muted">Nessun PDF o immagine nella cartella della multa.</div>'}
+    <label class="fld chk" style="padding-top:8px"><input type="checkbox" id="rPdfId" ${P.id && resp.docId ? 'checked' : ''} ${resp.docId ? '' : 'disabled'}> <span>Aggiungi in fondo il documento d'identità ${resp.docId ? '(' + esc(resp.docId.split('/').pop()) + ')' : '— non impostato: Impostazioni → Responsabili'}</span></label>
+    <div class="small muted">Il PDF esce senza firma: firmalo a mano per la raccomandata o digitalmente per la PEC.</div>`;
+}
+function bindPdfSec(m, R, rerender) {
+  const P = R.pdf, box = $('#rPdfSec'); if (!box) return;
+  const redraw = () => { box.innerHTML = pdfSecHTML(m, R); bindPdfSec(m, R, rerender); };
+  $('#rPdfSrc', box)?.addEventListener('change', e => { P.src = e.target.value; });
+  $$('[data-pf]', box).forEach(c => c.onchange = () => { const p = c.dataset.pf; P.sel = c.checked ? [...P.sel, p] : P.sel.filter(x => x !== p); redraw(); });
+  const mv = (p, d) => { const i = P.sel.indexOf(p), j = i + d; if (j < 0 || j >= P.sel.length) return; [P.sel[i], P.sel[j]] = [P.sel[j], P.sel[i]]; redraw(); };
+  $$('[data-pu]', box).forEach(b => b.onclick = () => mv(b.dataset.pu, -1));
+  $$('[data-pd]', box).forEach(b => b.onclick = () => mv(b.dataset.pd, 1));
+  $('#rPdfId', box)?.addEventListener('change', e => { P.id = e.target.checked; });
+}
+async function loadPdfLib() { if (!window.PDFLib) await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js'); return window.PDFLib; }
+/** Impagina il testo del ricorso in A4 (Times 12) con pdf-lib. */
+async function ricorsoPdfPages(doc, B) {
+  const {StandardFonts, rgb} = window.PDFLib;
+  const f = await doc.embedFont(StandardFonts.TimesRoman), fb = await doc.embedFont(StandardFonts.TimesRomanBold);
+  const W = 595.28, H = 841.89, M = 70, size = 12, lh = 17;
+  const clean = (t, font) => [...String(t)].map(ch => { try { font.encodeText(ch); return ch; } catch (e) { return ({'’': "'", '‘': "'", '“': '"', '”': '"'})[ch] || '?'; } }).join('');
+  let page = doc.addPage([W, H]), y = H - M;
+  const newPage = () => { page = doc.addPage([W, H]); y = H - M; };
+  for (const b of B) {
+    const font = b.b ? fb : f;
+    if (!b.t) { y -= lh * 0.6; continue; }
+    if (b.s === 'c' && b.b) y -= 6;
+    const words = clean(b.t, font).split(/\s+/); const lines = []; let cur = '';
+    for (const w of words) { const t = cur ? cur + ' ' + w : w; if (font.widthOfTextAtSize(t, size) > W - 2 * M && cur) { lines.push(cur); cur = w; } else cur = t; }
+    if (cur) lines.push(cur);
+    lines.forEach((ln, i) => {
+      if (y < M) newPage();
+      const wdt = font.widthOfTextAtSize(ln, size);
+      if (b.s === 'c') page.drawText(ln, {x: (W - wdt) / 2, y, size, font, color: rgb(0, 0, 0)});
+      else if (b.s === 'r') page.drawText(ln, {x: W - M - wdt, y, size, font, color: rgb(0, 0, 0)});
+      else if (i < lines.length - 1 && ln.includes(' ')) { // giustificato
+        const ws = ln.split(' '); const gap = (W - 2 * M - font.widthOfTextAtSize(ws.join(''), size)) / (ws.length - 1); let x = M;
+        for (const w of ws) { page.drawText(w, {x, y, size, font, color: rgb(0, 0, 0)}); x += font.widthOfTextAtSize(w, size) + gap; }
+      } else page.drawText(ln, {x: M, y, size, font, color: rgb(0, 0, 0)});
+      y -= lh;
+    });
+    y -= 4;
+  }
+}
+async function appendFileToPdf(doc, file) {
+  const {PDFDocument} = window.PDFLib;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (/\.pdf$/i.test(file.name) || file.type === 'application/pdf') {
+    const src = await PDFDocument.load(bytes, {ignoreEncryption: true});
+    (await doc.copyPages(src, src.getPageIndices())).forEach(p => doc.addPage(p));
+  } else {
+    const img = /png$/i.test(file.type) || /\.png$/i.test(file.name) ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
+    const W = 595.28, H = 841.89, M = 30, k = Math.min((W - 2 * M) / img.width, (H - 2 * M) / img.height, 1);
+    const p = doc.addPage([W, H]); p.drawImage(img, {x: (W - img.width * k) / 2, y: (H - img.height * k) / 2, width: img.width * k, height: img.height * k});
+  }
+}
+async function buildPdfInvio(m, R) {
+  const {PDFDocument} = await loadPdfLib();
+  const doc = await PDFDocument.create();
+  doc.setTitle('Ricorso ' + (m.nVerbale || '')); doc.setCreator('Gestione Multe ' + APP_VERSION);
+  if (R.pdf.src === 'testo') await ricorsoPdfPages(doc, componiRicorso(m, R));
+  else await appendFileToPdf(doc, await fileOf({path: R.pdf.src, name: R.pdf.src.split('/').pop()}));
+  for (const p of R.pdf.sel) { const f = (R.pdf.files || []).find(x => x.path === p); if (f) await appendFileToPdf(doc, await fileOf(f)); }
+  const resp = state.db.settings.responsabili.find(r => r.nome === R.ricNome) || {};
+  if (R.pdf.id && resp.docId) await appendFileToPdf(doc, await fileOf({path: resp.docId, name: resp.docId.split('/').pop()}));
+  return new Blob([await doc.save()], {type: 'application/pdf'});
 }
 async function aiMotivi(m, R, rerender) {
   const btn = $('#rAi');
@@ -2020,8 +2181,8 @@ function openSettings() {
       <div class="fld"><label>Modello</label><input id="sModel" value="${esc(s.model || 'claude-sonnet-5-5')}"></div>
       <div class="fld" style="align-self:end"><button class="btn small" id="sTest">Prova connessione</button> <span class="small" id="sTestOut"></span></div>
     </div>${saveBtn('sSaveAi')}</div></div>
-    <div class="sec"><h4>Responsabili · dati per i ricorsi</h4><div class="in" style="overflow:auto"><table class="piv"><thead><tr><th>Nome breve</th><th style="text-align:left">Nome e cognome</th><th style="text-align:left">Codice fiscale</th><th style="text-align:left">Nato/a a … il …</th><th style="text-align:left">Residenza</th><th style="text-align:left">PEC</th></tr></thead><tbody id="sRespB"></tbody></table>
-      <button class="btn small" id="sAddResp" style="margin-top:8px">＋ Responsabile</button>${saveBtn('sSaveResp')}</div></div>
+    <div class="sec"><h4>Responsabili · dati per i ricorsi</h4><div class="in" style="overflow:auto"><table class="piv"><thead><tr><th>Nome breve</th><th style="text-align:left">Nome e cognome</th><th style="text-align:left">Codice fiscale</th><th style="text-align:left">Nato/a a … il …</th><th style="text-align:left">Residenza</th><th style="text-align:left">PEC</th><th style="text-align:left">Documento d'identità</th></tr></thead><tbody id="sRespB"></tbody></table>
+      <button class="btn small" id="sAddResp" style="margin-top:8px">＋ Responsabile</button><p class="small muted">Il documento d'identità si sceglie tra i file della cartella <code>documenti</code> dell'archivio e viene unito ai PDF per l'invio dei ricorsi.</p>${saveBtn('sSaveResp')}</div></div>
     <div class="sec"><h4>Veicoli</h4><div class="in" style="overflow:auto"><table class="piv"><thead><tr><th>Veicolo</th><th style="text-align:left">Targa</th><th>Noleggio</th><th>Multe</th></tr></thead><tbody id="sVeiB"></tbody></table>
       <button class="btn small" id="sAddVei" style="margin-top:8px">＋ Veicolo</button><p class="small muted">Rinominare un veicolo aggiorna anche le multe collegate. Le targhe servono a riconoscere il veicolo dai verbali.</p>${saveBtn('sSaveVei')}</div></div>
     <div class="sec"><h4>Versione</h4><div class="in small">
@@ -2032,8 +2193,11 @@ function openSettings() {
       <button class="btn small" id="sExpJ">Esporta JSON</button><button class="btn small" id="sExpC">Esporta tabella (CSV per Excel)</button><button class="btn small" id="sImpJ">Importa JSON…</button>
       <select class="inp" id="sTheme"><option value="">Tema: automatico</option><option value="light" ${lsGet('multe.theme') === 'light' ? 'selected' : ''}>Tema: chiaro</option><option value="dark" ${lsGet('multe.theme') === 'dark' ? 'selected' : ''}>Tema: scuro</option></select>
     </div></div>`, `<button class="btn primary" id="sClose">Chiudi</button>`);
-  const drawResp = () => { $('#sRespB').innerHTML = R.map((r, i) => `<tr>${['nome', 'nomeCompleto', 'cf', 'nascita', 'residenza', 'pec'].map(k => `<td style="text-align:left"><input class="inp" style="width:100%;min-width:${k === 'residenza' ? 200 : 110}px" data-ri="${i}" data-rk="${k}" value="${esc(r[k] || '')}"></td>`).join('')}</tr>`).join('');
-    $$('[data-ri]').forEach(el => el.oninput = () => { R[+el.dataset.ri][el.dataset.rk] = el.value.trim(); }); };
+  let docFiles = null;
+  const drawResp = () => { $('#sRespB').innerHTML = R.map((r, i) => `<tr>${['nome', 'nomeCompleto', 'cf', 'nascita', 'residenza', 'pec'].map(k => `<td style="text-align:left"><input class="inp" style="width:100%;min-width:${k === 'residenza' ? 200 : 110}px" data-ri="${i}" data-rk="${k}" value="${esc(r[k] || '')}"></td>`).join('')}
+      <td style="text-align:left"><select class="inp" data-ri="${i}" data-rk="docId" style="min-width:180px"><option value="">—</option>${(docFiles || (r.docId ? [r.docId] : [])).map(p => `<option value="${esc(p)}" ${p === r.docId ? 'selected' : ''}>${esc(p.split('/').pop())}</option>`).join('')}</select></td></tr>`).join('');
+    $$('[data-ri]').forEach(el => el.oninput = el.onchange = () => { R[+el.dataset.ri][el.dataset.rk] = el.value.trim(); }); };
+  if (fs) (async () => { try { const dirs = (await fsList('')).filter(x => x.isFolder && /^_?documenti$/i.test(x.name)); docFiles = []; for (const d of dirs) for (const f of await fsList(d.name)) if (!f.isFolder && /\.(pdf|jpe?g|png)$/i.test(f.name)) docFiles.push(d.name + '/' + f.name); if ($('#sRespB')) drawResp(); } catch (e) {} })();
   const drawVei = () => { $('#sVeiB').innerHTML = V.map((v, i) => `<tr><td style="text-align:left"><input class="inp" data-vi="${i}" data-vk="nome" value="${esc(v.nome)}"></td><td style="text-align:left"><input class="inp" data-vi="${i}" data-vk="targa" value="${esc(v.targa || '')}" style="width:110px"></td><td style="text-align:center"><input type="checkbox" data-vi="${i}" data-vk="noleggio" ${v.noleggio ? 'checked' : ''}></td><td class="num">${state.db.multe.filter(m => m.vettura === (s.veicoli[i] || v).nome).length}</td></tr>`).join('');
     $$('[data-vi]').forEach(el => el.oninput = el.onchange = () => { V[+el.dataset.vi][el.dataset.vk] = el.type === 'checkbox' ? el.checked : el.value.trim(); }); };
   drawResp(); drawVei();
