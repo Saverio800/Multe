@@ -243,7 +243,7 @@ body.welcome-mode #btnNewDoc,body.welcome-mode #btnNewManual,body.welcome-mode #
 </head>
 <body>
 <header class="top"><div class="top-in">
-  <div class="brand"><span class="logo">€</span>Gestione Multe <span class="tag" id="verTag" title="Versione dell'applicazione">V10</span></div>
+  <div class="brand"><span class="logo">€</span>Gestione Multe <span class="tag" id="verTag" title="Versione dell'applicazione">V10.1</span></div>
   <nav class="tabs"><button data-view="multe" class="on">Multe</button><button data-view="sintesi">Sintesi</button></nav>
   <div class="spacer"></div>
   <div class="arch" id="archStatus"></div>
@@ -254,12 +254,13 @@ body.welcome-mode #btnNewDoc,body.welcome-mode #btnNewManual,body.welcome-mode #
 </div></header>
 <main id="main"></main>
 <input type="file" id="camPick" accept="image/*" capture="environment" class="hidden">
-<input type="file" id="filePick" multiple accept="application/pdf,image/*,.zip,application/zip,.eml,message/rfc822" class="hidden">
+<input type="file" id="filePick" multiple accept="application/pdf,image/*,.zip,application/zip,.eml,message/rfc822,.p7m" class="hidden">
 <script>
 'use strict';
-const APP_VERSION = 'V10';
+const APP_VERSION = 'V10.1';
 const APP_DATE = '2026-09-30'; // V3
 const CHANGELOG = [
+  ['V10.1', '2026-11-03', 'Correzione: lettura delle notifiche del processo telematico (Giudice di Pace): zip annidati, documenti firmati digitalmente .p7m (estratto il PDF) e allegati dentro la busta PEC.'],
   ['V10', '2026-11-03', 'Ricevute di invio del ricorso (PEC di accettazione/consegna, raccomandata) riconosciute dall\'AI con data, modalità e destinatario, e abbinate alla multa anche dalla home (verbale, bozza in sospeso, destinatario); la bozza diventa l\'evento di invio con tutti i file collegati. Nuovo "PDF per invio": ricorso + allegati scelti e ordinati + documento d\'identità in un unico PDF salvato nella cartella. Con una bozza di ricorso l\'attività in evidenza diventa l\'invio del ricorso. Soglia "Urgente" portata a 15 giorni.'],
   ['V9', '2026-11-02', 'Versione online su GitHub Pages: archivio su OneDrive (Microsoft Graph, accesso con account Microsoft), salvataggio con controllo dei conflitti tra dispositivi e unione automatica delle modifiche, nessun dato nel file della pagina; impostazioni con pulsante Salva per sezione; versione per telefono con caricamento da fotocamera e compressione delle foto.'],
   ['V8', '2026-10-31', 'Controllo informativo sul pagamento: avviso se lo sconto del 30% è stato applicato oltre i 5 giorni dalla notifica (al caricamento della ricevuta e come nota nella scheda), senza nuove scadenze né effetti sulla chiusura della pratica.'],
@@ -1458,9 +1459,34 @@ function emlAttachments(text, out = []) {
 /** Data della PEC da daticert.xml (giorno gg/mm/aaaa). */
 function pecDateFrom(xml) { const g = (xml.match(/<giorno>\s*(\d{2})\/(\d{2})\/(\d{4})\s*<\/giorno>/) || []); return g[0] ? `${g[3]}-${g[2]}-${g[1]}` : ''; }
 /** Estrae da uno zip i file utili (PDF e immagini), scartando cartelle di sistema e immagini minuscole (loghi, firme). */
+/** Estrae il documento contenuto in una busta firmata CAdES (.p7m): analisi BER/DER minima, anche con contenuto a blocchi. */
+function p7mExtract(bytes) {
+  if (bytes[0] !== 0x30) { // p7m in base64
+    try { const txt = new TextDecoder().decode(bytes).replace(/-----[^-]+-----/g, '').replace(/\s+/g, ''); const bin = atob(txt); bytes = Uint8Array.from(bin, c => c.charCodeAt(0)); } catch (e) { return null; }
+  }
+  const parse = (p, end) => {
+    const tag = bytes[p++]; if ((tag & 0x1f) === 0x1f) { while (bytes[p++] & 0x80); }
+    let len = bytes[p++], indef = false;
+    if (len === 0x80) indef = true; else if (len & 0x80) { const n = len & 0x7f; len = 0; for (let i = 0; i < n; i++) len = len * 256 + bytes[p++]; }
+    const node = {tag, cons: !!(tag & 0x20), cs: p, kids: []};
+    if (node.cons) {
+      let q = p; const lim = indef ? end : p + len;
+      while (q < lim) { if (indef && bytes[q] === 0 && bytes[q + 1] === 0) { q += 2; break; } const k = parse(q, lim); node.kids.push(k); q = k.next; }
+      node.next = indef ? q : p + len; node.ce = indef ? q - 2 : p + len;
+    } else { node.ce = p + len; node.next = p + len; }
+    return node;
+  };
+  const octets = n => n.cons ? (() => { const parts = n.kids.map(octets); const out = new Uint8Array(parts.reduce((a, x) => a + x.length, 0)); let o = 0; parts.forEach(x => { out.set(x, o); o += x.length; }); return out; })() : bytes.subarray(n.cs, n.ce);
+  let found = null;
+  const walk = n => { if (found) return; if ((n.tag & 0xdf) === 0x04) { const o = octets(n); if (o.length > 4 && (o[0] === 0x25 && o[1] === 0x50 && o[2] === 0x44 && o[3] === 0x46 || o.length > 1000)) { found = o; return; } } n.kids.forEach(walk); };
+  try { walk(parse(0, bytes.length)); } catch (e) { return null; }
+  return found;
+}
+/** Riconosce il tipo da contenuto (PDF/JPEG/PNG) quando l'estensione non basta. */
+function sniffExt(u8) { if (u8[0] === 0x25 && u8[1] === 0x50 && u8[2] === 0x44 && u8[3] === 0x46) return 'pdf'; if (u8[0] === 0xff && u8[1] === 0xd8) return 'jpg'; if (u8[0] === 0x89 && u8[1] === 0x50) return 'png'; return ''; }
+/** Estrae da uno zip i file utili (PDF e immagini), anche da zip annidati, buste PEC (.eml) e file firmati (.p7m). */
 async function unzipFiles(zipFile) {
   const JSZip = await loadJSZip();
-  const zip = await JSZip.loadAsync(zipFile);
   const out = [], skipped = [], seen = new Set(); let pecDate = '';
   const add = (base, blob, when) => {
     const ext = (base.split('.').pop() || '').toLowerCase();
@@ -1468,13 +1494,27 @@ async function unzipFiles(zipFile) {
     const key = base.toLowerCase() + '|' + blob.size; if (seen.has(key)) return; seen.add(key);
     out.push(new File([blob], base, {type: MIME[ext], lastModified: when || Date.now()}));
   };
-  for (const e of Object.values(zip.files)) {
-    if (e.dir || /(^|\/)(__MACOSX|\.)/.test(e.name)) continue;
-    const base = e.name.split('/').pop(); const ext = (base.split('.').pop() || '').toLowerCase();
-    if (ext === 'xml' && /daticert/i.test(base)) { pecDate = pecDateFrom(await e.async('string')) || pecDate; skipped.push(base); continue; }
-    if (ext === 'eml') { emlAttachments(await e.async('string')).forEach(a => add(a.name, new Blob([a.bytes]))); skipped.push(base); continue; }
-    add(base, await e.async('blob'), e.date?.getTime?.());
-  }
+  const handle = async (base, u8, when, depth) => {
+    const ext = (base.split('.').pop() || '').toLowerCase();
+    if (ext === 'xml' && /daticert/i.test(base)) { pecDate = pecDateFrom(new TextDecoder().decode(u8)) || pecDate; skipped.push(base); return; }
+    if (ext === 'eml' && depth < 4) { for (const a of emlAttachments(new TextDecoder('latin1').decode(u8))) await handle(a.name, a.bytes, when, depth + 1); skipped.push(base); return; }
+    if (ext === 'zip' && depth < 4) { try { await walkZip(await JSZip.loadAsync(u8), depth + 1); } catch (e) { skipped.push(base); } return; }
+    if (ext === 'p7m') {
+      const inner = p7mExtract(u8); if (!inner) { skipped.push(base); return; }
+      let nm = base.replace(/\.p7m$/i, ''); const ie = sniffExt(inner);
+      if (/\.p7m$/i.test(nm)) return handle(nm, inner, when, depth + 1); // doppia firma
+      if (ie && !new RegExp('\\.' + ie + '$', 'i').test(nm)) nm += '.' + ie;
+      return add(nm, new Blob([inner]), when);
+    }
+    add(base, new Blob([u8]), when);
+  };
+  const walkZip = async (zip, depth) => {
+    for (const e of Object.values(zip.files)) {
+      if (e.dir || /(^|\/)(__MACOSX|\.)/.test(e.name)) continue;
+      await handle(e.name.split('/').pop(), await e.async('uint8array'), e.date?.getTime?.(), depth);
+    }
+  };
+  await walkZip(await JSZip.loadAsync(zipFile), 0);
   return {files: out, skipped, pecDate};
 }
 /** Riduce le foto (es. da fotocamera) a max 2000 px, JPEG 82%, se più grandi di 1,2 MB. */
@@ -1495,10 +1535,10 @@ async function startExtraction(files, ctx) {
   files = await Promise.all(files.map(compressImage));
   for (const file of files) {
     let group = [file], extra = {};
-    if (/\.eml$/i.test(file.name)) {
-      const att = emlAttachments(await file.text()).filter(a => MIME[(a.name.split('.').pop() || '').toLowerCase()]);
-      if (!att.length) { alert('Nel messaggio ' + file.name + ' non ci sono PDF o immagini.'); continue; }
-      group = att.map(a => new File([a.bytes], a.name, {type: MIME[a.name.split('.').pop().toLowerCase()]})); extra = {zipName: file.name};
+    if (/\.(eml|p7m)$/i.test(file.name)) {
+      try { const JSZip = await loadJSZip(); const z = new JSZip(); z.file(file.name, await file.arrayBuffer()); const r = await unzipFiles(await z.generateAsync({type: 'blob'})); group = r.files; extra = {zipName: file.name, skipped: r.skipped, pecDate: r.pecDate}; }
+      catch (e) { alert('Impossibile aprire ' + file.name + ': ' + e.message); continue; }
+      if (!group.length) { alert('In ' + file.name + ' non ci sono PDF o immagini leggibili.'); continue; }
     } else if (isZip(file)) {
       try { const z = await unzipFiles(file); group = z.files; extra = {zipName: file.name, skipped: z.skipped, pecDate: z.pecDate}; }
       catch (e) { alert('Impossibile aprire lo zip ' + file.name + ': ' + e.message); continue; }
