@@ -243,7 +243,7 @@ body.welcome-mode #btnNewDoc,body.welcome-mode #btnNewManual,body.welcome-mode #
 </head>
 <body>
 <header class="top"><div class="top-in">
-  <div class="brand"><span class="logo">€</span>Gestione Multe <span class="tag" id="verTag" title="Versione dell'applicazione">V11</span></div>
+  <div class="brand"><span class="logo">€</span>Gestione Multe <span class="tag" id="verTag" title="Versione dell'applicazione">V11.1</span></div>
   <nav class="tabs"><button data-view="multe" class="on">Multe</button><button data-view="sintesi">Sintesi</button></nav>
   <div class="spacer"></div>
   <div class="arch" id="archStatus"></div>
@@ -257,9 +257,10 @@ body.welcome-mode #btnNewDoc,body.welcome-mode #btnNewManual,body.welcome-mode #
 <input type="file" id="filePick" multiple accept="application/pdf,image/*,.zip,application/zip,.eml,message/rfc822,.p7m" class="hidden">
 <script>
 'use strict';
-const APP_VERSION = 'V11';
+const APP_VERSION = 'V11.1';
 const APP_DATE = '2026-09-30'; // V3
 const CHANGELOG = [
+  ['V11.1', '2026-11-15', 'Correzione: per le multe senza responsabile il ricorrente è il primo della lista anche internamente, così il documento d\'identità scelto viene salvato; nel PDF per invio i file doppi (stessa dimensione) non vengono preselezionati.'],
   ['V11', '2026-11-15', 'Generatore di ricorsi: motivi divisi in vizi trovati dall\'AI, motivi tipo pertinenti al tipo di infrazione e altri motivi (chiusi); elenco testuale degli allegati generato dai file scelti per il PDF; audizione personale richiesta di default nei ricorsi al Prefetto. Include le correzioni V10.2.'],
   ['V10.2', '2026-11-15', 'Correzione: il documento d\'identità si sceglie direttamente nella sezione "PDF per invio" (salvato anche nell\'anagrafica); i Salva delle Impostazioni scrivono sempre sui dati correnti anche se l\'archivio è stato ricaricato nel frattempo.'],
   ['V10.1', '2026-11-03', 'Correzione: lettura delle notifiche del processo telematico (Giudice di Pace): zip annidati, documenti firmati digitalmente .p7m (estratto il PDF) e allegati dentro la busta PEC.'],
@@ -1823,7 +1824,9 @@ function contributo(v) { v = Number(v) || 0; return v <= 1100 ? 43 : v <= 5200 ?
 
 function openRicorso(m) {
   const a = A(m);
-  const resp = state.db.settings.responsabili.find(r => r.nome === m.responsabile) || {nome: m.responsabile};
+  const RS = state.db.settings.responsabili;
+  // senza responsabile sulla multa: il ricorrente è davvero il primo della lista (non solo in apparenza nel menu)
+  const resp = RS.find(r => r.nome === m.responsabile) || (m.responsabile ? {nome: m.responsabile} : RS[0]) || {nome: ''};
   const sugg = suggestMotivi(m, a);
   const dest = {...((state.db.settings.sedi || {})[norm(m.luogo)] || {})};
   const R = {
@@ -1913,7 +1916,7 @@ function openRicorso(m) {
     $('#rCancel').onclick = closeModal;
     $('#rAi').onclick = () => aiMotivi(m, R, reRender);
     bindPdfSec(m, R, reRender);
-    if (!R.pdf.files && fs && m.cartella) listFiles(m).then(fl => { R.pdf.files = fl.filter(f => /\.(pdf|jpe?g|png)$/i.test(f.name)); R.pdf.sel = R.pdf.files.filter(f => /verbal|relata|notific|ricezione|avviso/i.test(f.name) && !/ricorso/i.test(f.name)).map(f => f.path); syncAllegati(R); if ($('#rPdfSec')) reRender(); }).catch(() => {});
+    if (!R.pdf.files && fs && m.cartella) listFiles(m).then(fl => { R.pdf.files = fl.filter(f => /\.(pdf|jpe?g|png)$/i.test(f.name)); { const sizes = new Set(); R.pdf.sel = R.pdf.files.filter(f => /verbal|relata|notific|ricezione|avviso/i.test(f.name) && !/ricorso/i.test(f.name)).filter(f => { if (f.size && sizes.has(f.size)) return false; sizes.add(f.size); return true; }).map(f => f.path); } syncAllegati(R); if ($('#rPdfSec')) reRender(); }).catch(() => {});
     else if (!R.pdf.files) R.pdf.files = [];
     if (!R.pdf.docFiles && fs) (async () => { try { const dirs = (await fsList('')).filter(x => x.isFolder && /^_?documenti$/i.test(x.name)); const out = []; for (const d of dirs) for (const f of await fsList(d.name)) if (!f.isFolder && /\.(pdf|jpe?g|png)$/i.test(f.name)) out.push(d.name + '/' + f.name); R.pdf.docFiles = out; } catch (e) { R.pdf.docFiles = []; } syncAllegati(R); if ($('#rPdfSec') && R.pdf.files) reRender(); })();
     const commonCommit = () => {
@@ -2021,7 +2024,8 @@ function bindPdfSec(m, R, rerender) {
   $$('[data-pd]', box).forEach(b => b.onclick = () => mv(b.dataset.pd, 1));
   $('#rPdfId', box)?.addEventListener('change', e => { P.id = e.target.checked; });
   $('#rPdfIdSel', box)?.addEventListener('change', e => {
-    const S = state.db.settings; let r = S.responsabili.find(x => x.nome === R.ricNome);
+    const S = state.db.settings; if (!R.ricNome) R.ricNome = $('#rRicSel')?.value || S.responsabili[0]?.nome || '';
+    let r = S.responsabili.find(x => x.nome === R.ricNome);
     if (!r && R.ricNome) { r = {nome: R.ricNome}; S.responsabili.push(r); }
     if (r) { r.docId = e.target.value; P.id = !!r.docId; save(); }
     redraw();
