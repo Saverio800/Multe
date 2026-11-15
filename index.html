@@ -243,7 +243,7 @@ body.welcome-mode #btnNewDoc,body.welcome-mode #btnNewManual,body.welcome-mode #
 </head>
 <body>
 <header class="top"><div class="top-in">
-  <div class="brand"><span class="logo">€</span>Gestione Multe <span class="tag" id="verTag" title="Versione dell'applicazione">V11.1</span></div>
+  <div class="brand"><span class="logo">€</span>Gestione Multe <span class="tag" id="verTag" title="Versione dell'applicazione">V11.2</span></div>
   <nav class="tabs"><button data-view="multe" class="on">Multe</button><button data-view="sintesi">Sintesi</button></nav>
   <div class="spacer"></div>
   <div class="arch" id="archStatus"></div>
@@ -257,9 +257,10 @@ body.welcome-mode #btnNewDoc,body.welcome-mode #btnNewManual,body.welcome-mode #
 <input type="file" id="filePick" multiple accept="application/pdf,image/*,.zip,application/zip,.eml,message/rfc822,.p7m" class="hidden">
 <script>
 'use strict';
-const APP_VERSION = 'V11.1';
+const APP_VERSION = 'V11.2';
 const APP_DATE = '2026-09-30'; // V3
 const CHANGELOG = [
+  ['V11.2', '2026-11-15', 'Ricevute PEC di accettazione e di avvenuta consegna lette direttamente da daticert.xml (data, ora, destinatario, oggetto e numero di verbale), senza AI: abbinate alla multa e registrate come invio del ricorso; archiviato lo zip originale. Se l\'invio è già registrato, la ricevuta viene solo archiviata.'],
   ['V11.1', '2026-11-15', 'Correzione: per le multe senza responsabile il ricorrente è il primo della lista anche internamente, così il documento d\'identità scelto viene salvato; nel PDF per invio i file doppi (stessa dimensione) non vengono preselezionati.'],
   ['V11', '2026-11-15', 'Generatore di ricorsi: motivi divisi in vizi trovati dall\'AI, motivi tipo pertinenti al tipo di infrazione e altri motivi (chiusi); elenco testuale degli allegati generato dai file scelti per il PDF; audizione personale richiesta di default nei ricorsi al Prefetto. Include le correzioni V10.2.'],
   ['V10.2', '2026-11-15', 'Correzione: il documento d\'identità si sceglie direttamente nella sezione "PDF per invio" (salvato anche nell\'anagrafica); i Salva delle Impostazioni scrivono sempre sui dati correnti anche se l\'archivio è stato ricaricato nel frattempo.'],
@@ -1459,6 +1460,23 @@ function emlAttachments(text, out = []) {
   if (fn && cte === 'base64') { try { const bin = atob(body.replace(/[^A-Za-z0-9+/=]/g, '')); out.push({name: fn, bytes: Uint8Array.from(bin, c => c.charCodeAt(0))}); } catch (e) {} }
   return out;
 }
+/** Ricevuta PEC (accettazione / avvenuta consegna) da daticert.xml, nello stesso formato dei dati letti dall'AI. */
+function ricevutaDaDaticert(xml) {
+  const dec = t => String(t || '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&').trim();
+  const tipo = (xml.match(/<postacert[^>]*\btipo="([^"]+)"/i) || [])[1] || '';
+  if (!/accettazione|consegna/i.test(tipo)) return null;
+  const ogg = dec((xml.match(/<oggetto>([\s\S]*?)<\/oggetto>/i) || [])[1]);
+  const dest = [...xml.matchAll(/<destinatari[^>]*>([^<]+)<\/destinatari>/gi)].map(x => dec(x[1])).join(', ');
+  const cons = dec((xml.match(/<consegna>([^<]+)<\/consegna>/i) || [])[1]);
+  const ora = (xml.match(/<ora>([^<]+)<\/ora>/i) || [])[1] || '';
+  const id = dec((xml.match(/<msgid>([^<]+)<\/msgid>/i) || [])[1]).replace(/[<>]/g, '');
+  const nv = (ogg.match(/verbale(?:\s+di\s+accertamento)?\s+n\.?\s*([A-Z0-9][\w/.-]*)/i) || [])[1] || '';
+  const consegna = /consegna/i.test(tipo);
+  return {tipo_documento: 'ricevuta_invio_pec', tipo_ricevuta: tipo, numero_verbale: nv.replace(/[.,;]$/, ''),
+    invio_data: pecDateFrom(xml), invio_modalita: 'PEC', invio_destinatario: cons || dest, invio_codice: id,
+    sintesi: `Ricevuta di ${consegna ? 'avvenuta consegna' : 'accettazione'} PEC${ora ? ' delle ' + ora.slice(0, 5) : ''}${ogg ? ' · oggetto: ' + ogg : ''}${(cons || dest) ? ' · a ' + (cons || dest) : ''}`,
+    possibili_vizi: [], documenti: [{indice: 1, tipo: 'ricevuta_invio_pec', nome_file: consegna ? 'Ricevuta consegna PEC' : 'Ricevuta accettazione PEC'}]};
+}
 /** Data della PEC da daticert.xml (giorno gg/mm/aaaa). */
 function pecDateFrom(xml) { const g = (xml.match(/<giorno>\s*(\d{2})\/(\d{2})\/(\d{4})\s*<\/giorno>/) || []); return g[0] ? `${g[3]}-${g[2]}-${g[1]}` : ''; }
 /** Estrae da uno zip i file utili (PDF e immagini), scartando cartelle di sistema e immagini minuscole (loghi, firme). */
@@ -1490,7 +1508,7 @@ function sniffExt(u8) { if (u8[0] === 0x25 && u8[1] === 0x50 && u8[2] === 0x44 &
 /** Estrae da uno zip i file utili (PDF e immagini), anche da zip annidati, buste PEC (.eml) e file firmati (.p7m). */
 async function unzipFiles(zipFile) {
   const JSZip = await loadJSZip();
-  const out = [], skipped = [], seen = new Set(); let pecDate = '';
+  const out = [], skipped = [], seen = new Set(); let pecDate = '', daticert = '';
   const add = (base, blob, when) => {
     const ext = (base.split('.').pop() || '').toLowerCase();
     if (!MIME[ext] || (ext !== 'pdf' && blob.size < 15000)) { skipped.push(base); return; }
@@ -1499,7 +1517,7 @@ async function unzipFiles(zipFile) {
   };
   const handle = async (base, u8, when, depth) => {
     const ext = (base.split('.').pop() || '').toLowerCase();
-    if (ext === 'xml' && /daticert/i.test(base)) { pecDate = pecDateFrom(new TextDecoder().decode(u8)) || pecDate; skipped.push(base); return; }
+    if (ext === 'xml' && /daticert/i.test(base)) { const xt = new TextDecoder().decode(u8); if (depth === 0 || !daticert) daticert = xt; pecDate = pecDateFrom(xt) || pecDate; skipped.push(base); return; }
     if (ext === 'eml' && depth < 4) { for (const a of emlAttachments(new TextDecoder('latin1').decode(u8))) await handle(a.name, a.bytes, when, depth + 1); skipped.push(base); return; }
     if (ext === 'zip' && depth < 4) { try { await walkZip(await JSZip.loadAsync(u8), depth + 1); } catch (e) { skipped.push(base); } return; }
     if (ext === 'p7m') {
@@ -1518,7 +1536,7 @@ async function unzipFiles(zipFile) {
     }
   };
   await walkZip(await JSZip.loadAsync(zipFile), 0);
-  return {files: out, skipped, pecDate};
+  return {files: out, skipped, pecDate, daticert};
 }
 /** Riduce le foto (es. da fotocamera) a max 2000 px, JPEG 82%, se più grandi di 1,2 MB. */
 async function compressImage(file) {
@@ -1543,8 +1561,15 @@ async function startExtraction(files, ctx) {
       catch (e) { alert('Impossibile aprire ' + file.name + ': ' + e.message); continue; }
       if (!group.length) { alert('In ' + file.name + ' non ci sono PDF o immagini leggibili.'); continue; }
     } else if (isZip(file)) {
-      try { const z = await unzipFiles(file); group = z.files; extra = {zipName: file.name, skipped: z.skipped, pecDate: z.pecDate}; }
+      let z;
+      try { z = await unzipFiles(file); group = z.files; extra = {zipName: file.name, skipped: z.skipped, pecDate: z.pecDate}; }
       catch (e) { alert('Impossibile aprire lo zip ' + file.name + ': ' + e.message); continue; }
+      const ric = z.daticert ? ricevutaDaDaticert(z.daticert) : null;
+      if (ric && (!group.length || /accettazione|consegna/i.test(ric.tipo_ricevuta) && group.every(f => /\.(png|jpe?g|gif)$/i.test(f.name)))) {
+        // ricevuta PEC: nessuna lettura AI, i dati sono già in daticert.xml; si archivia lo zip originale
+        const done = await new Promise(res => showReview([file], ric, null, {...ctx, zipName: file.name, pecDate: ric.invio_data, ricevutaPec: true}, res));
+        if (done === 'stop') break; continue;
+      }
       if (!group.length) { alert('Nello zip ' + file.name + ' non ci sono PDF o immagini.'); continue; }
     }
     const done = await extractOne(group, {...ctx, ...extra}); if (done === 'stop') break;
@@ -1591,7 +1616,8 @@ function showReview(files, x, err, ctx, resolve) {
   };
   if (x.tipo_infrazione === 'Mancata comunicazione dati' && cands.length) draft.collegataA = cands[0].m.id;
   const evTipo = isInvioDoc(x) && /giudice/i.test(x.invio_destinatario || '') ? 'ricorso_gdp' : (DOC2EV[x.tipo_documento] || 'nota');
-  const invioDest = /prefett/i.test(x.invio_destinatario || '') ? 'prefetto' : /polizia|comando|comune|organo|municipal/i.test(x.invio_destinatario || '') ? 'organo' : 'prefetto';
+  const dTxt = x.invio_destinatario || '';
+  const invioDest = /prefett|\.pref|pec\.interno\.it/i.test(dTxt) ? 'prefetto' : /polizia|comando|comune|organo|municipal|\bpm\b|plocale|vigili/i.test(dTxt) ? 'organo' : 'prefetto';
   const evDraft = {tipo: x.tipo_documento === 'sentenza' && /accolt/i.test(x.esito || '') ? 'accolto' : evTipo,
     data: x.tipo_documento === 'convocazione_udienza' ? (x.data_udienza || '') : (ctx.pecDate || x.data_notifica || x.data_documento || todayISO()), importo: x.importo_documento ?? null,
     note: [DOC_TIPI[x.tipo_documento], x.numero_atto ? 'n. ' + x.numero_atto : '', x.sintesi].filter(Boolean).join(' – ')};
@@ -1613,7 +1639,8 @@ function showReview(files, x, err, ctx, resolve) {
       <div class="fld full" id="rvPayCheck"></div>
     </div></div></div>` : ''}
     ${x.noleggio && !vObj ? `<div class="banner warn small">L'AI indica che il veicolo potrebbe essere a noleggio o in locazione: se è un noleggio spunta «Veicolo a noleggio» (cambia il calcolo dei 90 giorni per la notifica).</div>` : ''}
-    ${ctx.pecDate ? `<div class="banner info small">📨 Data della PEC (da daticert.xml): <b>${fd(ctx.pecDate)}</b> — usata come data di notifica.</div>` : ''}
+    ${ctx.ricevutaPec ? `<div class="banner info small">📨 Ricevuta PEC letta da <code>daticert.xml</code> (senza AI): verrà archiviato lo zip originale, che contiene la ricevuta firmata dal gestore.</div>` : ''}
+    ${ctx.pecDate && !ctx.ricevutaPec ? `<div class="banner info small">📨 Data della PEC (da daticert.xml): <b>${fd(ctx.pecDate)}</b> — usata come data di notifica.</div>` : ''}
     <div class="small muted" style="margin-bottom:10px">${ctx.zipName ? `Zip: <b>${esc(ctx.zipName)}</b> · ${files.length} allegati${ctx.skipped?.length ? ` (scartati ${ctx.skipped.length} file non utili)` : ''}` : `File: <b>${esc(file.name)}</b>`} — controlla i dati proposti prima di confermare.</div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px">
       <label><input type="radio" name="rvMode" value="new" ${defaultMode === 'new' ? 'checked' : ''} ${ctx.multa ? 'disabled' : ''}> Crea una nuova multa</label>
@@ -1624,7 +1651,7 @@ function showReview(files, x, err, ctx, resolve) {
       <div class="fld full"><label>Note</label><textarea data-f="note" rows="2"></textarea></div></div>${datalists()}</div></div>
     <div id="rvEx" class="sec"><h4>Aggiungi a multa esistente</h4><div class="in"><div class="grid2">
       <div class="fld full"><label>Multa</label><select id="rvTarget">${cands.length ? '' : '<option value="">— nessuna multa corrispondente: scegli tu —</option>'}${(cands.length ? cands.map(c => c.m) : []).concat(state.db.multe.filter(m => !cands.some(c => c.m === m)).sort((a, b) => (b.dataInfrazione || '').localeCompare(a.dataInfrazione || ''))).map((m, i) => `<option value="${m.id}">${i < cands.length ? '★ ' : ''}${esc(mLabel(m))} · ${esc(m.nVerbale)}</option>`).join('')}</select></div>
-      <div class="fld"><label>Evento da registrare</label><select id="rvEvTipo">${Object.entries(EV).map(([k, v]) => `<option value="${k}" ${k === evDraft.tipo && !(isVerbale && ctx.multa !== undefined) ? 'selected' : ''}>${v.l}</option>`).join('')}<option value="__none" ${isVerbale ? 'selected' : ''}>Nessun evento (solo archivia i file)</option></select></div>
+      <div class="fld"><label>Evento da registrare</label><select id="rvEvTipo">${Object.entries(EV).map(([k, v]) => `<option value="${k}" ${k === evDraft.tipo && !(isVerbale && ctx.multa !== undefined) ? 'selected' : ''}>${v.l}</option>`).join('')}<option value="__none" ${isVerbale || (isInvioDoc(x) && cands[0] && evSorted(cands[0].m).some(e => (e.tipo === 'ricorso_prefetto' || e.tipo === 'ricorso_gdp') && !bozzaPendente(cands[0].m))) ? 'selected' : ''}>Nessun evento (solo archivia i file)</option></select></div>
       <div class="fld"><label>Data evento</label><input type="date" id="rvEvData" value="${esc(evDraft.data)}"></div>
       <div class="fld"><label>Importo €</label><input type="number" step="0.01" id="rvEvImp" value="${evDraft.importo ?? ''}"></div>
       <div class="fld"><label>Modalità</label><input id="rvEvMod" list="dlModPag" value="${esc(evDraft.modalita || '')}"></div>
