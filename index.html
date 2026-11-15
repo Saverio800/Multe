@@ -243,7 +243,7 @@ body.welcome-mode #btnNewDoc,body.welcome-mode #btnNewManual,body.welcome-mode #
 </head>
 <body>
 <header class="top"><div class="top-in">
-  <div class="brand"><span class="logo">€</span>Gestione Multe <span class="tag" id="verTag" title="Versione dell'applicazione">V10.1</span></div>
+  <div class="brand"><span class="logo">€</span>Gestione Multe <span class="tag" id="verTag" title="Versione dell'applicazione">V11</span></div>
   <nav class="tabs"><button data-view="multe" class="on">Multe</button><button data-view="sintesi">Sintesi</button></nav>
   <div class="spacer"></div>
   <div class="arch" id="archStatus"></div>
@@ -257,9 +257,11 @@ body.welcome-mode #btnNewDoc,body.welcome-mode #btnNewManual,body.welcome-mode #
 <input type="file" id="filePick" multiple accept="application/pdf,image/*,.zip,application/zip,.eml,message/rfc822,.p7m" class="hidden">
 <script>
 'use strict';
-const APP_VERSION = 'V10.1';
+const APP_VERSION = 'V11';
 const APP_DATE = '2026-09-30'; // V3
 const CHANGELOG = [
+  ['V11', '2026-11-15', 'Generatore di ricorsi: motivi divisi in vizi trovati dall\'AI, motivi tipo pertinenti al tipo di infrazione e altri motivi (chiusi); elenco testuale degli allegati generato dai file scelti per il PDF; audizione personale richiesta di default nei ricorsi al Prefetto. Include le correzioni V10.2.'],
+  ['V10.2', '2026-11-15', 'Correzione: il documento d\'identità si sceglie direttamente nella sezione "PDF per invio" (salvato anche nell\'anagrafica); i Salva delle Impostazioni scrivono sempre sui dati correnti anche se l\'archivio è stato ricaricato nel frattempo.'],
   ['V10.1', '2026-11-03', 'Correzione: lettura delle notifiche del processo telematico (Giudice di Pace): zip annidati, documenti firmati digitalmente .p7m (estratto il PDF) e allegati dentro la busta PEC.'],
   ['V10', '2026-11-03', 'Ricevute di invio del ricorso (PEC di accettazione/consegna, raccomandata) riconosciute dall\'AI con data, modalità e destinatario, e abbinate alla multa anche dalla home (verbale, bozza in sospeso, destinatario); la bozza diventa l\'evento di invio con tutti i file collegati. Nuovo "PDF per invio": ricorso + allegati scelti e ordinati + documento d\'identità in un unico PDF salvato nella cartella. Con una bozza di ricorso l\'attività in evidenza diventa l\'invio del ricorso. Soglia "Urgente" portata a 15 giorni.'],
   ['V9', '2026-11-02', 'Versione online su GitHub Pages: archivio su OneDrive (Microsoft Graph, accesso con account Microsoft), salvataggio con controllo dei conflitti tra dispositivi e unione automatica delle modifiche, nessun dato nel file della pagina; impostazioni con pulsante Salva per sezione; versione per telefono con caricamento da fotocamera e compressione delle foto.'],
@@ -1789,6 +1791,8 @@ const MOTIVI = {
     x: m => `La violazione contestata risale al ${fd(m.dataInfrazione)}. Da tale data sono decorsi più di cinque anni senza che siano intervenuti validi atti interruttivi ritualmente notificati al ricorrente. Il diritto a riscuotere la somma è pertanto prescritto.`},
   ordinanza_tardiva: {t: 'Violazione dell\'art. 204, commi 1-bis e 1-ter, C.d.S. – Tardività dell\'ordinanza-ingiunzione e accoglimento del ricorso per silenzio-assenso',
     x: m => { const ev = evSorted(m); const rp = ev.filter(e => e.tipo === 'ricorso_prefetto').pop(); const o = ev.filter(e => e.tipo === 'ordinanza').pop(); return `Il ricorrente ha proposto ricorso al Prefetto in data ${fd(rp?.data)}. L'ordinanza-ingiunzione è stata notificata soltanto in data ${fd(o?.data)}, oltre il termine previsto dall'art. 204 C.d.S. per l'adozione del provvedimento e per la sua successiva notificazione. Decorso inutilmente tale termine, il ricorso si intende accolto ai sensi dell'art. 204, comma 1-ter, C.d.S., con conseguente illegittimità dell'ordinanza impugnata.`; }},
+  sosta_segnaletica: {t: 'Violazione degli artt. 5, 6, 7 e 158 C.d.S. e degli artt. 77 ss. del Regolamento – Segnaletica del divieto assente, non visibile o non conforme',
+    x: m => `Nel luogo indicato nel verbale${m.luogo ? ' (' + m.luogo + ')' : ''} il divieto contestato non era reso conoscibile da segnaletica regolare: [specificare, ad es. cartello assente, coperto, illeggibile, privo di pannello integrativo con orari o giorni, segnaletica orizzontale cancellata]. Il verbale, inoltre, non indica l'ordinanza che istituisce il divieto né la segnaletica presente. In assenza di segnaletica conforme il divieto non è opponibile all'utente della strada.`},
   libero: {t: 'Ulteriore motivo', x: () => ''}
 };
 function suggestMotivi(m, a) {
@@ -1797,6 +1801,16 @@ function suggestMotivi(m, a) {
   if (m.tipo === 'ZTL' || m.tipo === 'Corsia preferenziale') s.add('ztl_segnaletica');
   if (m.tipo === 'Semaforo rosso') s.add('semaforo');
   if (m.tipo === 'Mancata comunicazione dati') s.add('dati_conducente');
+  return s;
+}
+/** Motivi tipo pertinenti al tipo di infrazione e alla sede del ricorso. */
+function motiviPertinenti(m, sede) {
+  const s = new Set(['notifica_tardiva', 'omessa_contestazione', 'vizi_verbale']);
+  ({'Divieto di sosta': ['sosta_segnaletica'], 'Eccesso di velocità': ['velox_omologazione', 'velox_segnalazione'], 'ZTL': ['ztl_segnaletica'], 'Corsia preferenziale': ['ztl_segnaletica'],
+    'Semaforo rosso': ['semaforo'], 'Telefono alla guida': [], 'Mancata comunicazione dati': ['dati_conducente']}[m.tipo] || []).forEach(k => s.add(k));
+  if (sede === 'gdp_ingiunzione') { s.add('omessa_notifica'); s.add('prescrizione'); }
+  if (sede === 'gdp_ordinanza') s.add('ordinanza_tardiva');
+  s.add('libero');
   return s;
 }
 function defaultSede(a) { return {ordinanza: 'gdp_ordinanza', ingiunzione: 'gdp_ingiunzione', gdp: 'gdp_ordinanza'}[a.fase] || 'prefetto'; }
@@ -1814,12 +1828,13 @@ function openRicorso(m) {
   const dest = {...((state.db.settings.sedi || {})[norm(m.luogo)] || {})};
   const R = {
     sede: defaultSede(a), qualita: 'trasgressore', prefettura: dest.prefettura || '', gdpSede: dest.gdp || '', ente: m.ente || dest.ente || (m.luogo ? 'Polizia Locale di ' + m.luogo : ''), dest, ricNome: resp.nome || '',
-    viaOrgano: false, audizione: false, sospensiva: false, luogoFirma: (resp.residenza || '').split(',').pop().replace(/\d{5}/, '').trim() || '', dataFirma: todayISO(),
+    viaOrgano: false, audizione: true, sospensiva: false, luogoFirma: (resp.residenza || '').split(',').pop().replace(/\d{5}/, '').trim() || '', dataFirma: todayISO(),
     ric: {nomeCompleto: resp.nomeCompleto || '', nascita: resp.nascita || '', cf: resp.cf || '', residenza: resp.residenza || '', pec: resp.pec || ''},
     motivi: [...(m.viziAI || []).map(v => ({k: 'ai', t: v.titolo + ` (solidità ${v.solidita})`, x: v.testo_motivo, on: v.solidita === 'alta', ai: true})), ...Object.entries(MOTIVI).map(([k, v]) => ({k, t: v.t, x: v.x(m, a), on: sugg.has(k), ai: false}))],
     allegati: ['Copia del verbale impugnato', 'Copia della relata di notifica', 'Copia del documento d\'identità del ricorrente'],
     ordNum: '', ordAtto: '',
-    pdf: {src: 'testo', files: null, sel: [], id: true}
+    pdf: {src: 'testo', files: null, sel: [], id: true},
+    allegatiAuto: true
   };
   const ordEv = evSorted(m).filter(e => e.tipo === 'ordinanza').pop();
   if (ordEv?.note) { const mm = ordEv.note.match(/n\.\s*([\w/.-]+)/); if (mm) R.ordNum = mm[1]; }
@@ -1856,10 +1871,19 @@ function openRicorso(m) {
           <div class="fld chk full" style="padding-top:0"><input type="checkbox" id="rSaveAna" checked><label for="rSaveAna">Salva questi dati nell'anagrafica di ${esc(R.ricNome || 'questo responsabile')}</label></div>
         </div></div></div>
         <div class="sec"><h4>Motivi<span class="sp"></span><button class="btn small" id="rAi">✨ Analizza il verbale con AI</button></h4><div class="in" id="rMotivi">
-          ${R.motivi.map((mo, i) => `<div class="motivo ${mo.on ? 'sel' : ''}"><div class="mh"><input type="checkbox" id="mo${i}" data-mo="${i}" ${mo.on ? 'checked' : ''}><label for="mo${i}">${esc(mo.t)}${mo.ai ? ' <span class="tag">AI</span>' : ''}${sugg.has(mo.k) ? ' <span class="tag">suggerito</span>' : ''}</label></div>${mo.on ? `<textarea data-mox="${i}">${esc(mo.x)}</textarea>` : ''}</div>`).join('')}
+          ${(() => {
+            const card = (mo, i) => `<div class="motivo ${mo.on ? 'sel' : ''}"><div class="mh"><input type="checkbox" id="mo${i}" data-mo="${i}" ${mo.on ? 'checked' : ''}><label for="mo${i}">${esc(mo.t)}${mo.ai ? ' <span class="tag">AI</span>' : ''}${sugg.has(mo.k) ? ' <span class="tag">suggerito</span>' : ''}</label></div>${mo.on ? `<textarea data-mox="${i}">${esc(mo.x)}</textarea>` : ''}</div>`;
+            const all = R.motivi.map((mo, i) => ({mo, i}));
+            const pert = motiviPertinenti(m, R.sede); sugg.forEach(k => pert.add(k));
+            const ai = all.filter(x => x.mo.ai), tp = all.filter(x => !x.mo.ai && pert.has(x.mo.k)), oth = all.filter(x => !x.mo.ai && !pert.has(x.mo.k));
+            return `<div class="small" style="font-weight:600;margin-bottom:6px">Vizi trovati dall'AI</div>`
+              + (ai.length ? ai.map(x => card(x.mo, x.i)).join('') : `<div class="small muted" style="margin-bottom:10px">Nessun vizio trovato dall'AI al caricamento del verbale. Per un parere specifico usa «✨ Analizza il verbale con AI».</div>`)
+              + `<div class="small" style="font-weight:600;margin:12px 0 6px">Motivi tipo pertinenti <span class="muted" style="font-weight:400">· ${esc(m.tipo || '')}</span></div>` + tp.map(x => card(x.mo, x.i)).join('')
+              + (oth.length ? `<details ${oth.some(x => x.mo.on) ? 'open' : ''} style="margin-top:10px"><summary class="small" style="cursor:pointer;font-weight:600">Altri motivi tipo (${oth.length})</summary><div style="margin-top:8px">${oth.map(x => card(x.mo, x.i)).join('')}</div></details>` : '');
+          })()}
         </div></div>
         <div class="sec"><h4>Allegati e firma</h4><div class="in"><div class="grid2">
-          <div class="fld full"><label>Allegati (uno per riga)</label><textarea id="rAll" rows="4">${esc(R.allegati.join('\n'))}</textarea></div>
+          <div class="fld full"><label>Allegati elencati nel ricorso (uno per riga) — ${R.allegatiAuto ? 'generati dai file scelti per il PDF qui sotto' : 'modificati a mano'} ${R.allegatiAuto ? '' : '<a href="#" id="rAllReset">rigenera dai file</a>'}</label><textarea id="rAll" rows="4">${esc(R.allegati.join('\n'))}</textarea></div>
           <div class="fld"><label>Luogo</label><input id="rLuogoF" value="${esc(R.luogoFirma)}"></div>
           <div class="fld"><label>Data</label><input type="date" id="rDataF" value="${esc(R.dataFirma)}"></div>
         </div></div></div>
@@ -1872,7 +1896,7 @@ function openRicorso(m) {
     const upd = () => { $('#rPrev').innerHTML = blocksToHTML(componiRicorso(m, R)); };
     const bind = (sel, key, prop = 'value', rerender = false) => { const el = $(sel); if (el) el.addEventListener(rerender ? 'change' : 'input', () => { R[key] = el[prop]; rerender ? reRender() : upd(); }); };
     const reRender = () => { const st = mb.scrollTop; render(); $('.modal-b').scrollTop = st; };
-    $('#rSede').onchange = e => { R.sede = e.target.value; if (R.sede !== 'prefetto' && !R.allegati.some(x => /contributo/i.test(x))) R.allegati.push('Ricevuta del versamento del contributo unificato'); reRender(); };
+    $('#rSede').onchange = e => { R.sede = e.target.value; if (R.allegatiAuto) syncAllegati(R); else if (R.sede !== 'prefetto' && !R.allegati.some(x => /contributo/i.test(x))) R.allegati.push('Ricevuta del versamento del contributo unificato'); reRender(); };
     bind('#rPref', 'prefettura'); bind('#rGdp', 'gdpSede'); bind('#rEnte', 'ente'); bind('#rOrdNum', 'ordNum'); bind('#rOrdAtto', 'ordAtto'); bind('#rLuogoF', 'luogoFirma'); bind('#rDataF', 'dataFirma');
     $('#rQual').onchange = e => { R.qualita = e.target.value; upd(); };
     $('#rRicSel').onchange = e => { R.ricNome = e.target.value; const r = state.db.settings.responsabili.find(x => x.nome === R.ricNome) || {}; R.ric = {nomeCompleto: r.nomeCompleto || '', nascita: r.nascita || '', cf: r.cf || '', residenza: r.residenza || '', pec: r.pec || ''}; if (!R.luogoFirma) R.luogoFirma = (r.residenza || '').split(',').pop().replace(/\d{5}/, '').trim(); reRender(); };
@@ -1884,12 +1908,14 @@ function openRicorso(m) {
     $$('[data-r]').forEach(el => el.addEventListener('input', () => { R.ric[el.dataset.r] = el.value; upd(); }));
     $$('[data-mo]').forEach(el => el.onchange = () => { R.motivi[+el.dataset.mo].on = el.checked; reRender(); });
     $$('[data-mox]').forEach(el => el.addEventListener('input', () => { R.motivi[+el.dataset.mox].x = el.value; upd(); }));
-    $('#rAll').addEventListener('input', e => { R.allegati = e.target.value.split('\n').map(s => s.trim()).filter(Boolean); upd(); });
+    $('#rAll').addEventListener('input', e => { R.allegati = e.target.value.split('\n').map(s => s.trim()).filter(Boolean); R.allegatiAuto = false; upd(); });
+    $('#rAllReset') && ($('#rAllReset').onclick = e => { e.preventDefault(); R.allegatiAuto = true; syncAllegati(R); reRender(); });
     $('#rCancel').onclick = closeModal;
     $('#rAi').onclick = () => aiMotivi(m, R, reRender);
     bindPdfSec(m, R, reRender);
-    if (!R.pdf.files && fs && m.cartella) listFiles(m).then(fl => { R.pdf.files = fl.filter(f => /\.(pdf|jpe?g|png)$/i.test(f.name)); R.pdf.sel = R.pdf.files.filter(f => /verbal|relata|notific|ricezione|avviso/i.test(f.name) && !/ricorso/i.test(f.name)).map(f => f.path); if ($('#rPdfSec')) { $('#rPdfSec').innerHTML = pdfSecHTML(m, R); bindPdfSec(m, R, reRender); } }).catch(() => {});
+    if (!R.pdf.files && fs && m.cartella) listFiles(m).then(fl => { R.pdf.files = fl.filter(f => /\.(pdf|jpe?g|png)$/i.test(f.name)); R.pdf.sel = R.pdf.files.filter(f => /verbal|relata|notific|ricezione|avviso/i.test(f.name) && !/ricorso/i.test(f.name)).map(f => f.path); syncAllegati(R); if ($('#rPdfSec')) reRender(); }).catch(() => {});
     else if (!R.pdf.files) R.pdf.files = [];
+    if (!R.pdf.docFiles && fs) (async () => { try { const dirs = (await fsList('')).filter(x => x.isFolder && /^_?documenti$/i.test(x.name)); const out = []; for (const d of dirs) for (const f of await fsList(d.name)) if (!f.isFolder && /\.(pdf|jpe?g|png)$/i.test(f.name)) out.push(d.name + '/' + f.name); R.pdf.docFiles = out; } catch (e) { R.pdf.docFiles = []; } syncAllegati(R); if ($('#rPdfSec') && R.pdf.files) reRender(); })();
     const commonCommit = () => {
       if ($('#rSaveAna').checked && R.ricNome) {
         let r = state.db.settings.responsabili.find(r => r.nome === R.ricNome);
@@ -1958,18 +1984,48 @@ function pdfSecHTML(m, R) {
   return `<div class="fld"><label>Ricorso</label><select id="rPdfSrc"><option value="testo" ${P.src === 'testo' ? 'selected' : ''}>Genera dal testo di questa finestra</option>${pdfs.map(f => `<option value="${esc(f.path)}" ${P.src === f.path ? 'selected' : ''}>Usa il PDF «${esc(f.name)}» (es. esportato dal Word modificato)</option>`).join('')}</select></div>
     <div class="small" style="margin:10px 0 4px"><b>Allegati</b> <span class="muted">— spunta e ordina</span></div>
     ${ord.length ? ord.map(f => { const on = P.sel.includes(f.path); const i = P.sel.indexOf(f.path); return `<div class="file"><input type="checkbox" data-pf="${esc(f.path)}" ${on ? 'checked' : ''}><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(f.name)}">${on ? `<b class="num">${i + 1}.</b> ` : ''}${esc(f.name)}</span>${on ? `<button class="btn small ghost" data-pu="${esc(f.path)}" ${i === 0 ? 'disabled' : ''}>↑</button><button class="btn small ghost" data-pd="${esc(f.path)}" ${i === P.sel.length - 1 ? 'disabled' : ''}>↓</button>` : ''}</div>`; }).join('') : '<div class="small muted">Nessun PDF o immagine nella cartella della multa.</div>'}
-    <label class="fld chk" style="padding-top:8px"><input type="checkbox" id="rPdfId" ${P.id && resp.docId ? 'checked' : ''} ${resp.docId ? '' : 'disabled'}> <span>Aggiungi in fondo il documento d'identità ${resp.docId ? '(' + esc(resp.docId.split('/').pop()) + ')' : '— non impostato: Impostazioni → Responsabili'}</span></label>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-top:8px"><label class="fld chk" style="padding:0"><input type="checkbox" id="rPdfId" ${P.id && resp.docId ? 'checked' : ''} ${resp.docId ? '' : 'disabled'}> <span>Aggiungi in fondo il documento d'identità:</span></label>
+      <select class="inp" id="rPdfIdSel" style="flex:1;min-width:200px"><option value="">— scegli dalla cartella documenti —</option>${[...new Set([...(P.docFiles || []), resp.docId].filter(Boolean))].map(p => `<option value="${esc(p)}" ${p === resp.docId ? 'selected' : ''}>${esc(p.split('/').pop())}</option>`).join('')}</select></div>
+    ${P.docFiles && !P.docFiles.length && !resp.docId ? '<div class="small muted">Nessun file nella cartella <code>documenti</code> dell\'archivio multe.</div>' : ''}
     <div class="small muted">Il PDF esce senza firma: firmalo a mano per la raccomandata o digitalmente per la PEC.</div>`;
+}
+/** Descrizione leggibile di un allegato a partire dal nome del file. */
+function descAllegato(name) {
+  const n = name.toLowerCase();
+  if (/verbal/.test(n)) return 'Copia del verbale impugnato';
+  if (/relata|notific|ricezione|send|aar/.test(n)) return 'Copia della relata / avviso di notifica';
+  if (/ordinanz/.test(n)) return 'Copia dell\'ordinanza-ingiunzione';
+  if (/cartell|ingiunz/.test(n)) return 'Copia dell\'atto impugnato';
+  if (/contribut/.test(n)) return 'Ricevuta del versamento del contributo unificato';
+  if (/ricevut|pagament|quietanz/.test(n)) return 'Copia della ricevuta di pagamento';
+  if (/conducente|modulo/.test(n)) return 'Copia della comunicazione dei dati del conducente';
+  if (/\.(jpe?g|png)$/.test(n) || /foto/.test(n)) return 'Documentazione fotografica';
+  return name.split('/').pop().replace(/\.[^.]+$/, '');
+}
+/** Se l'elenco è automatico, lo ricalcola dai file spuntati per il PDF (+ documento d'identità). */
+function syncAllegati(R) {
+  if (!R.allegatiAuto || !R.pdf.files) return;
+  const resp = state.db.settings.responsabili.find(r => r.nome === R.ricNome) || {};
+  const list = R.pdf.sel.map(p => descAllegato(p.split('/').pop()));
+  if (R.pdf.id && resp.docId) list.push('Copia del documento d\'identità del ricorrente');
+  if (R.sede !== 'prefetto' && !list.some(x => /contributo/i.test(x))) list.push('Ricevuta del versamento del contributo unificato');
+  R.allegati = [...new Set(list)];
 }
 function bindPdfSec(m, R, rerender) {
   const P = R.pdf, box = $('#rPdfSec'); if (!box) return;
-  const redraw = () => { box.innerHTML = pdfSecHTML(m, R); bindPdfSec(m, R, rerender); };
+  const redraw = () => { if (R.allegatiAuto) { syncAllegati(R); return rerender(); } box.innerHTML = pdfSecHTML(m, R); bindPdfSec(m, R, rerender); };
   $('#rPdfSrc', box)?.addEventListener('change', e => { P.src = e.target.value; });
   $$('[data-pf]', box).forEach(c => c.onchange = () => { const p = c.dataset.pf; P.sel = c.checked ? [...P.sel, p] : P.sel.filter(x => x !== p); redraw(); });
   const mv = (p, d) => { const i = P.sel.indexOf(p), j = i + d; if (j < 0 || j >= P.sel.length) return; [P.sel[i], P.sel[j]] = [P.sel[j], P.sel[i]]; redraw(); };
   $$('[data-pu]', box).forEach(b => b.onclick = () => mv(b.dataset.pu, -1));
   $$('[data-pd]', box).forEach(b => b.onclick = () => mv(b.dataset.pd, 1));
   $('#rPdfId', box)?.addEventListener('change', e => { P.id = e.target.checked; });
+  $('#rPdfIdSel', box)?.addEventListener('change', e => {
+    const S = state.db.settings; let r = S.responsabili.find(x => x.nome === R.ricNome);
+    if (!r && R.ricNome) { r = {nome: R.ricNome}; S.responsabili.push(r); }
+    if (r) { r.docId = e.target.value; P.id = !!r.docId; save(); }
+    redraw();
+  });
 }
 async function loadPdfLib() { if (!window.PDFLib) await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js'); return window.PDFLib; }
 /** Impagina il testo del ricorso in A4 (Times 12) con pdf-lib. */
@@ -2130,7 +2186,7 @@ function componiRicorso(m, R) {
     writeMotivi();
     P('CHIEDE', 'c', true);
     P('che la S.V., esaminati gli atti, voglia dichiarare fondato il presente ricorso e, per l\'effetto, disporre con ordinanza motivata l\'archiviazione degli atti ai sensi dell\'art. 204, comma 1, del Codice della Strada.');
-    if (R.audizione) P('Chiede altresì di essere sentito/a personalmente ai sensi dell\'art. 203, comma 1, del Codice della Strada.');
+    if (R.audizione) P('Chiede altresì, prima dell\'eventuale rigetto del ricorso, di essere sentito/a personalmente ai sensi dell\'art. 203, comma 1, del Codice della Strada.');
     P(ric.pec ? `Chiede che ogni comunicazione relativa al presente procedimento sia inviata all'indirizzo PEC ${ric.pec}.` : 'Chiede che ogni comunicazione relativa al presente procedimento sia inviata presso la residenza sopra indicata.');
     allegati(); firma();
   } else {
@@ -2248,8 +2304,8 @@ function openSettings() {
   $('#sLogout') && ($('#sLogout').onclick = () => { if (!confirm('Uscire dall\'account Microsoft su questo dispositivo?')) return; tok.clear(); dev.mode = null; saveDev(); location.reload(); });
   $('#sGoOd') && ($('#sGoOd').onclick = () => { dev.mode = null; saveDev(); closeModal(); showWelcome(); });
   $('#sSaveClient').onclick = () => { const v = $('#sClient').value.trim(); const changed = v !== dev.clientId; dev.clientId = v; saveDev(); ok('sSaveClient'); if (changed && od && confirm('Client ID cambiato: per usarlo devi accedere di nuovo. Farlo ora?')) msLogin().catch(e => alert(e.message)); };
-  $('#sSaveTpl').onclick = () => { s.cartellaTemplate = $('#sTpl').value.trim() || DEFAULT_TPL; save(); ok('sSaveTpl'); };
-  $('#sSaveAi').onclick = () => { dev.apiKey = $('#sKey').value.trim(); saveDev(); s.model = $('#sModel').value.trim() || 'claude-sonnet-5-5'; save(); ok('sSaveAi'); };
+  $('#sSaveTpl').onclick = () => { state.db.settings.cartellaTemplate = $('#sTpl').value.trim() || DEFAULT_TPL; save(); ok('sSaveTpl'); };
+  $('#sSaveAi').onclick = () => { dev.apiKey = $('#sKey').value.trim(); saveDev(); state.db.settings.model = $('#sModel').value.trim() || 'claude-sonnet-5-5'; save(); ok('sSaveAi'); };
   $('#sTest').onclick = async () => {
     dev.apiKey = $('#sKey').value.trim(); saveDev(); $('#sTestOut').innerHTML = '<span class="spinner"></span>';
     try { await callClaude([{type: 'text', text: 'Rispondi ok.'}], {name: 'ok', description: 'conferma', input_schema: {type: 'object', properties: {ok: {type: 'boolean'}}}}, 50); $('#sTestOut').innerHTML = '<span style="color:var(--good)">✓ funziona</span>'; }
@@ -2257,13 +2313,13 @@ function openSettings() {
   };
   $('#sAddResp').onclick = () => { R.push({nome: 'Nuovo', nomeCompleto: '', cf: '', nascita: '', residenza: '', pec: ''}); drawResp(); };
   $('#sSaveResp').onclick = () => {
-    s.responsabili.forEach((old, i) => { const nu = R[i]; if (nu && old.nome && nu.nome && old.nome !== nu.nome) state.db.multe.forEach(m => { if (m.responsabile === old.nome) { m.responsabile = nu.nome; touch(m); } }); });
-    s.responsabili = JSON.parse(JSON.stringify(R)); save(); ok('sSaveResp');
+    state.db.settings.responsabili.forEach((old, i) => { const nu = R[i]; if (nu && old.nome && nu.nome && old.nome !== nu.nome) state.db.multe.forEach(m => { if (m.responsabile === old.nome) { m.responsabile = nu.nome; touch(m); } }); });
+    state.db.settings.responsabili = JSON.parse(JSON.stringify(R)); save(); ok('sSaveResp');
   };
   $('#sAddVei').onclick = () => { V.push({nome: 'Nuovo veicolo', targa: '', noleggio: false}); drawVei(); };
   $('#sSaveVei').onclick = () => {
-    s.veicoli.forEach((old, i) => { const nu = V[i]; if (!nu) return; state.db.multe.forEach(m => { if (m.vettura === old.nome) { if (nu.nome !== old.nome) { m.vettura = nu.nome; touch(m); } if (!!nu.noleggio !== !!old.noleggio) { m.noleggio = !!nu.noleggio; touch(m); } } }); });
-    s.veicoli = JSON.parse(JSON.stringify(V)); save(); ok('sSaveVei'); drawVei();
+    state.db.settings.veicoli.forEach((old, i) => { const nu = V[i]; if (!nu) return; state.db.multe.forEach(m => { if (m.vettura === old.nome) { if (nu.nome !== old.nome) { m.vettura = nu.nome; touch(m); } if (!!nu.noleggio !== !!old.noleggio) { m.noleggio = !!nu.noleggio; touch(m); } } }); });
+    state.db.settings.veicoli = JSON.parse(JSON.stringify(V)); save(); ok('sSaveVei'); drawVei();
   };
   $('#sExpJ').onclick = () => download(new Blob([serialize()], {type: 'application/json'}), 'multe_db_' + todayISO() + '.json');
   $('#sExpC').onclick = exportCSV;
