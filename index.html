@@ -243,7 +243,7 @@ body.welcome-mode #btnNewDoc,body.welcome-mode #btnNewManual,body.welcome-mode #
 </head>
 <body>
 <header class="top"><div class="top-in">
-  <div class="brand"><span class="logo">€</span>Gestione Multe <span class="tag" id="verTag" title="Versione dell'applicazione">V11.2</span></div>
+  <div class="brand"><span class="logo">€</span>Gestione Multe <span class="tag" id="verTag" title="Versione dell'applicazione">V12</span></div>
   <nav class="tabs"><button data-view="multe" class="on">Multe</button><button data-view="sintesi">Sintesi</button></nav>
   <div class="spacer"></div>
   <div class="arch" id="archStatus"></div>
@@ -257,9 +257,10 @@ body.welcome-mode #btnNewDoc,body.welcome-mode #btnNewManual,body.welcome-mode #
 <input type="file" id="filePick" multiple accept="application/pdf,image/*,.zip,application/zip,.eml,message/rfc822,.p7m" class="hidden">
 <script>
 'use strict';
-const APP_VERSION = 'V11.2';
+const APP_VERSION = 'V12';
 const APP_DATE = '2026-09-30'; // V3
 const CHANGELOG = [
+  ['V12', '2026-11-20', 'Ricevute PEC di accettazione e di avvenuta consegna lette sempre da daticert.xml senza AI, anche se lo zip contiene PDF (copia del ricorso), archiviando solo lo zip originale; se l\'invio è già registrato la consegna viene aggiunta alle note dell\'evento ("consegnata il gg/mm alle hh:mm"). Messaggi PEC senza allegati (es. riscontri dell\'ente): il testo della mail viene letto dall\'AI, abbinato alla multa e archiviato insieme allo zip.'],
   ['V11.2', '2026-11-15', 'Ricevute PEC di accettazione e di avvenuta consegna lette direttamente da daticert.xml (data, ora, destinatario, oggetto e numero di verbale), senza AI: abbinate alla multa e registrate come invio del ricorso; archiviato lo zip originale. Se l\'invio è già registrato, la ricevuta viene solo archiviata.'],
   ['V11.1', '2026-11-15', 'Correzione: per le multe senza responsabile il ricorrente è il primo della lista anche internamente, così il documento d\'identità scelto viene salvato; nel PDF per invio i file doppi (stessa dimensione) non vengono preselezionati.'],
   ['V11', '2026-11-15', 'Generatore di ricorsi: motivi divisi in vizi trovati dall\'AI, motivi tipo pertinenti al tipo di infrazione e altri motivi (chiusi); elenco testuale degli allegati generato dai file scelti per il PDF; audizione personale richiesta di default nei ricorsi al Prefetto. Include le correzioni V10.2.'],
@@ -1291,8 +1292,8 @@ function modal(title, bodyHTML, footHTML, cls = '', onClose = null) {
 function closeModal(silent) { const cb = silent ? null : state._mc; state._mc = null; $('#modalBg')?.remove(); if (cb) cb(); }
 
 /* ============================== AI: lettura documenti ============================== */
-const DOC_TIPI = {verbale: 'Verbale di accertamento', ordinanza: 'Ordinanza-ingiunzione Prefetto', ingiunzione: 'Ingiunzione di pagamento', cartella: 'Cartella esattoriale', sollecito: 'Avviso / sollecito', ricevuta_pagamento: 'Ricevuta di pagamento', accoglimento: 'Accoglimento ricorso / archiviazione', sentenza: 'Sentenza Giudice di Pace', convocazione_udienza: 'Convocazione udienza', ricorso: 'Ricorso (copia inviata)', ricevuta_invio_pec: 'Ricevuta di invio/consegna PEC', ricevuta_raccomandata: 'Ricevuta di raccomandata', avviso_ricezione: 'Avviso di avvenuta ricezione (SEND/PEC)', avviso_pagamento: 'Avviso di pagamento pagoPA', modulo_conducente: 'Modulo comunicazione dati conducente', altro: 'Altro'};
-const DOC2EV = {ordinanza: 'ordinanza', ingiunzione: 'ingiunzione', cartella: 'ingiunzione', sollecito: 'sollecito', ricevuta_pagamento: 'pagamento_verbale', accoglimento: 'accolto', sentenza: 'respinto', convocazione_udienza: 'udienza', ricorso: 'ricorso_prefetto', ricevuta_invio_pec: 'ricorso_prefetto', ricevuta_raccomandata: 'ricorso_prefetto', altro: 'nota', verbale: 'nota', avviso_ricezione: 'nota', avviso_pagamento: 'nota', modulo_conducente: 'nota'};
+const DOC_TIPI = {verbale: 'Verbale di accertamento', ordinanza: 'Ordinanza-ingiunzione Prefetto', ingiunzione: 'Ingiunzione di pagamento', cartella: 'Cartella esattoriale', sollecito: 'Avviso / sollecito', ricevuta_pagamento: 'Ricevuta di pagamento', accoglimento: 'Accoglimento ricorso / archiviazione', sentenza: 'Sentenza Giudice di Pace', convocazione_udienza: 'Convocazione udienza', ricorso: 'Ricorso (copia inviata)', ricevuta_invio_pec: 'Ricevuta di invio/consegna PEC', ricevuta_raccomandata: 'Ricevuta di raccomandata', comunicazione_ente: 'Comunicazione dell\'ente (PEC / lettera)', avviso_ricezione: 'Avviso di avvenuta ricezione (SEND/PEC)', avviso_pagamento: 'Avviso di pagamento pagoPA', modulo_conducente: 'Modulo comunicazione dati conducente', altro: 'Altro'};
+const DOC2EV = {ordinanza: 'ordinanza', ingiunzione: 'ingiunzione', cartella: 'ingiunzione', sollecito: 'sollecito', ricevuta_pagamento: 'pagamento_verbale', accoglimento: 'accolto', sentenza: 'respinto', convocazione_udienza: 'udienza', ricorso: 'ricorso_prefetto', ricevuta_invio_pec: 'ricorso_prefetto', ricevuta_raccomandata: 'ricorso_prefetto', comunicazione_ente: 'nota', altro: 'nota', verbale: 'nota', avviso_ricezione: 'nota', avviso_pagamento: 'nota', modulo_conducente: 'nota'};
 const EXTRACT_TOOL = {
   name: 'registra_documento',
   description: 'Registra i dati estratti da un documento relativo a una multa stradale.',
@@ -1341,6 +1342,7 @@ Se ci sono più documenti sono allegati della stessa comunicazione (es. una noti
 Per sentenze, ordinanze, ingiunzioni e altri atti successivi, compila numero_verbale, data_infrazione, luogo_comune e targa del verbale ORIGINARIO se citati nel testo.
 Valuta inoltre con spirito critico i possibili vizi del verbale (campo possibili_vizi), indicando onestamente la solidità; non inventare fatti.
 Se il documento è la prova dell'invio di un ricorso (ricevuta PEC di accettazione o di avvenuta consegna, ricevuta di raccomandata, cartolina di ritorno), usa tipo ricevuta_invio_pec o ricevuta_raccomandata e compila invio_data, invio_modalita, invio_destinatario e invio_codice; se nel messaggio o negli allegati compare il numero del verbale contestato, mettilo in numero_verbale.
+Se è un messaggio dell'ente (PEC o lettera) senza un atto allegato, ad es. un riscontro, una richiesta di integrazione o un avviso di archiviazione, usa tipo comunicazione_ente (o accoglimento se dichiara l'archiviazione) e nella sintesi indica chiaramente cosa viene chiesto e entro quando.
 Se tra i documenti c'è una ricevuta di pagamento, compila sempre pagamento_importo, pagamento_data e pagamento_modalita, anche quando il documento principale è il verbale.
 Regole: date in formato YYYY-MM-DD; importi in euro come numero; non inventare nulla, lascia vuoti i campi assenti; il numero di verbale va trascritto esattamente. Se il documento è una comunicazione PEC con allegato il verbale, considera il verbale. Per il tipo di infrazione usa la categoria più vicina.`;
 function fileToB64(file) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = () => rej(r.error); r.readAsDataURL(file); }); }
@@ -1460,6 +1462,27 @@ function emlAttachments(text, out = []) {
   if (fn && cte === 'base64') { try { const bin = atob(body.replace(/[^A-Za-z0-9+/=]/g, '')); out.push({name: fn, bytes: Uint8Array.from(bin, c => c.charCodeAt(0))}); } catch (e) {} }
   return out;
 }
+/** Testo leggibile di un messaggio .eml (prima parte text/plain, altrimenti text/html ripulito), con decodifica quoted-printable/base64 e charset. */
+function emlText(raw) {
+  let plain = '', html = '';
+  const walk = text => {
+    const sep = text.search(/\r?\n\r?\n/); if (sep < 0) return;
+    const head = text.slice(0, sep).replace(/\r?\n[ \t]+/g, ' '), body = text.slice(sep).replace(/^\r?\n\r?\n/, '');
+    const h = n => (head.match(new RegExp('^' + n + ':(.*)$', 'im')) || [])[1]?.trim() || '';
+    const ct = h('Content-Type') || 'text/plain', cd = h('Content-Disposition'), cte = h('Content-Transfer-Encoding').toLowerCase();
+    const bnd = (ct.match(/boundary="?([^";]+)"?/i) || [])[1];
+    if (/^multipart\//i.test(ct) && bnd) { body.split('--' + bnd).slice(1).forEach(p => { if (!p.startsWith('--')) walk(p.replace(/^\r?\n/, '')); }); return; }
+    if (/attachment/i.test(cd) || !/^text\/(plain|html)/i.test(ct)) return;
+    let bytes;
+    if (cte === 'base64') { try { bytes = Uint8Array.from(atob(body.replace(/[^A-Za-z0-9+/=]/g, '')), c => c.charCodeAt(0)); } catch (e) { return; } }
+    else { const t = cte === 'quoted-printable' ? body.replace(/=\r?\n/g, '').replace(/=([0-9A-F]{2})/gi, (a, x) => String.fromCharCode(parseInt(x, 16))) : body; bytes = Uint8Array.from(t, c => c.charCodeAt(0) & 255); }
+    let cs = ((ct.match(/charset="?([^";\s]+)"?/i) || [])[1] || 'utf-8'); let txt; try { txt = new TextDecoder(cs).decode(bytes); } catch (e) { txt = new TextDecoder().decode(bytes); }
+    if (/^text\/plain/i.test(ct)) { if (!plain) plain = txt; } else if (!html) html = txt;
+  };
+  walk(raw);
+  if (!plain && html) plain = html.replace(/<(style|script)[\s\S]*?<\/\1>/gi, '').replace(/<br\s*\/?>|<\/p>|<\/div>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+  return plain.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
+}
 /** Ricevuta PEC (accettazione / avvenuta consegna) da daticert.xml, nello stesso formato dei dati letti dall'AI. */
 function ricevutaDaDaticert(xml) {
   const dec = t => String(t || '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&').trim();
@@ -1473,9 +1496,15 @@ function ricevutaDaDaticert(xml) {
   const nv = (ogg.match(/verbale(?:\s+di\s+accertamento)?\s+n\.?\s*([A-Z0-9][\w/.-]*)/i) || [])[1] || '';
   const consegna = /consegna/i.test(tipo);
   return {tipo_documento: 'ricevuta_invio_pec', tipo_ricevuta: tipo, numero_verbale: nv.replace(/[.,;]$/, ''),
-    invio_data: pecDateFrom(xml), invio_modalita: 'PEC', invio_destinatario: cons || dest, invio_codice: id,
+    invio_data: pecDateFrom(xml), invio_ora: ora.slice(0, 5), consegna, invio_modalita: 'PEC', invio_destinatario: cons || dest, invio_codice: id,
     sintesi: `Ricevuta di ${consegna ? 'avvenuta consegna' : 'accettazione'} PEC${ora ? ' delle ' + ora.slice(0, 5) : ''}${ogg ? ' · oggetto: ' + ogg : ''}${(cons || dest) ? ' · a ' + (cons || dest) : ''}`,
     possibili_vizi: [], documenti: [{indice: 1, tipo: 'ricevuta_invio_pec', nome_file: consegna ? 'Ricevuta consegna PEC' : 'Ricevuta accettazione PEC'}]};
+}
+/** Mittente, oggetto, data e ora di un messaggio PEC da daticert.xml. */
+function pecInfo(xml) {
+  const dec = t => String(t || '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&').trim();
+  const g = r => dec((xml.match(r) || [])[1]);
+  return {mittente: g(/<mittente>([^<]+)<\/mittente>/i), oggetto: g(/<oggetto>([\s\S]*?)<\/oggetto>/i), data: pecDateFrom(xml), ora: g(/<ora>([^<]+)<\/ora>/i).slice(0, 5)};
 }
 /** Data della PEC da daticert.xml (giorno gg/mm/aaaa). */
 function pecDateFrom(xml) { const g = (xml.match(/<giorno>\s*(\d{2})\/(\d{2})\/(\d{4})\s*<\/giorno>/) || []); return g[0] ? `${g[3]}-${g[2]}-${g[1]}` : ''; }
@@ -1508,7 +1537,7 @@ function sniffExt(u8) { if (u8[0] === 0x25 && u8[1] === 0x50 && u8[2] === 0x44 &
 /** Estrae da uno zip i file utili (PDF e immagini), anche da zip annidati, buste PEC (.eml) e file firmati (.p7m). */
 async function unzipFiles(zipFile) {
   const JSZip = await loadJSZip();
-  const out = [], skipped = [], seen = new Set(); let pecDate = '', daticert = '';
+  const out = [], skipped = [], seen = new Set(); let pecDate = '', daticert = '', mailText = '';
   const add = (base, blob, when) => {
     const ext = (base.split('.').pop() || '').toLowerCase();
     if (!MIME[ext] || (ext !== 'pdf' && blob.size < 15000)) { skipped.push(base); return; }
@@ -1518,7 +1547,7 @@ async function unzipFiles(zipFile) {
   const handle = async (base, u8, when, depth) => {
     const ext = (base.split('.').pop() || '').toLowerCase();
     if (ext === 'xml' && /daticert/i.test(base)) { const xt = new TextDecoder().decode(u8); if (depth === 0 || !daticert) daticert = xt; pecDate = pecDateFrom(xt) || pecDate; skipped.push(base); return; }
-    if (ext === 'eml' && depth < 4) { for (const a of emlAttachments(new TextDecoder('latin1').decode(u8))) await handle(a.name, a.bytes, when, depth + 1); skipped.push(base); return; }
+    if (ext === 'eml' && depth < 4) { const raw = new TextDecoder('latin1').decode(u8); if (/postacert/i.test(base) || !mailText) { const t = emlText(raw); if (t && (/postacert/i.test(base) || !mailText)) mailText = t; } for (const a of emlAttachments(raw)) await handle(a.name, a.bytes, when, depth + 1); skipped.push(base); return; }
     if (ext === 'zip' && depth < 4) { try { await walkZip(await JSZip.loadAsync(u8), depth + 1); } catch (e) { skipped.push(base); } return; }
     if (ext === 'p7m') {
       const inner = p7mExtract(u8); if (!inner) { skipped.push(base); return; }
@@ -1536,7 +1565,7 @@ async function unzipFiles(zipFile) {
     }
   };
   await walkZip(await JSZip.loadAsync(zipFile), 0);
-  return {files: out, skipped, pecDate, daticert};
+  return {files: out, skipped, pecDate, daticert, mailText};
 }
 /** Riduce le foto (es. da fotocamera) a max 2000 px, JPEG 82%, se più grandi di 1,2 MB. */
 async function compressImage(file) {
@@ -1565,12 +1594,19 @@ async function startExtraction(files, ctx) {
       try { z = await unzipFiles(file); group = z.files; extra = {zipName: file.name, skipped: z.skipped, pecDate: z.pecDate}; }
       catch (e) { alert('Impossibile aprire lo zip ' + file.name + ': ' + e.message); continue; }
       const ric = z.daticert ? ricevutaDaDaticert(z.daticert) : null;
-      if (ric && (!group.length || /accettazione|consegna/i.test(ric.tipo_ricevuta) && group.every(f => /\.(png|jpe?g|gif)$/i.test(f.name)))) {
-        // ricevuta PEC: nessuna lettura AI, i dati sono già in daticert.xml; si archivia lo zip originale
+      if (ric) {
+        // ricevuta PEC: nessuna lettura AI (anche se lo zip contiene la copia del ricorso), i dati sono in daticert.xml; si archivia solo lo zip originale
         const done = await new Promise(res => showReview([file], ric, null, {...ctx, zipName: file.name, pecDate: ric.invio_data, ricevutaPec: true}, res));
         if (done === 'stop') break; continue;
       }
-      if (!group.length) { alert('Nello zip ' + file.name + ' non ci sono PDF o immagini.'); continue; }
+      if (!group.length && z.mailText) {
+        // messaggio PEC senza allegati: l'AI legge il testo della mail; si archiviano lo zip originale e il testo
+        const pi = z.daticert ? pecInfo(z.daticert) : {};
+        const txt = [pi.mittente ? 'Da: ' + pi.mittente : '', pi.data ? 'Data: ' + fd(pi.data) + (pi.ora ? ' ' + pi.ora : '') : '', pi.oggetto ? 'Oggetto: ' + pi.oggetto : '', '', z.mailText].filter((v, i) => v || i === 3).join('\n');
+        const tf = new File([txt], file.name.replace(/\.zip$/i, '') + ' - testo.txt', {type: 'text/plain'});
+        const done = await extractOne([file, tf], {...ctx, ...extra, mailText: txt}); if (done === 'stop') break; continue;
+      }
+      if (!group.length) { alert('Nello zip ' + file.name + ' non ci sono PDF, immagini o testo leggibile.'); continue; }
     }
     const done = await extractOne(group, {...ctx, ...extra}); if (done === 'stop') break;
   }
@@ -1586,7 +1622,8 @@ function extractOne(files, ctx) {
     if (hasKey) {
       try {
         const content = [];
-        for (let i = 0; i < files.length; i++) { if (files.length > 1) content.push({type: 'text', text: `Documento ${i + 1}: ${files[i].name}`}); content.push(await fileBlock(files[i])); }
+        if (ctx.mailText) content.push({type: 'text', text: 'Messaggio PEC ricevuto (senza allegati), testo integrale:\n\n' + ctx.mailText});
+        else for (let i = 0; i < files.length; i++) { if (files.length > 1) content.push({type: 'text', text: `Documento ${i + 1}: ${files[i].name}`}); content.push(await fileBlock(files[i])); }
         content.push({type: 'text', text: EXTRACT_PROMPT});
         x = await callClaude(content, EXTRACT_TOOL, 4000);
       } catch (e) { err = e; }
@@ -1599,7 +1636,7 @@ function extractOne(files, ctx) {
 function showReview(files, x, err, ctx, resolve) {
   const file = files[0];
   const ext = f => (f.name.match(/\.[^.]+$/) || [''])[0];
-  const docInfo = files.map((f, i) => { const d = (x.documenti || []).find(d => d.indice === i + 1) || {}; return {f, tipo: d.tipo || (files.length === 1 ? x.tipo_documento : ''), nome: d.nome_file ? safeSeg(d.nome_file) + ext(f) : f.name}; });
+  const docInfo = files.map((f, i) => { const d = ctx.mailText ? {tipo: i ? x.tipo_documento : 'altro', nome_file: 'Messaggio PEC' + (ctx.pecDate ? ' ' + ctx.pecDate : '') + (i ? ' - testo' : '')} : (x.documenti || []).find(d => d.indice === i + 1) || {}; return {f, tipo: d.tipo || (files.length === 1 ? x.tipo_documento : ''), nome: d.nome_file ? safeSeg(d.nome_file) + ext(f) : f.name}; });
   const cands = ctx.multa ? [{m: ctx.multa, s: 99}] : matchCandidates(x);
   const isVerbale = !x.tipo_documento || x.tipo_documento === 'verbale';
   // una "mancata comunicazione dati" è un verbale nuovo collegato all'originario
@@ -1640,7 +1677,8 @@ function showReview(files, x, err, ctx, resolve) {
     </div></div></div>` : ''}
     ${x.noleggio && !vObj ? `<div class="banner warn small">L'AI indica che il veicolo potrebbe essere a noleggio o in locazione: se è un noleggio spunta «Veicolo a noleggio» (cambia il calcolo dei 90 giorni per la notifica).</div>` : ''}
     ${ctx.ricevutaPec ? `<div class="banner info small">📨 Ricevuta PEC letta da <code>daticert.xml</code> (senza AI): verrà archiviato lo zip originale, che contiene la ricevuta firmata dal gestore.</div>` : ''}
-    ${ctx.pecDate && !ctx.ricevutaPec ? `<div class="banner info small">📨 Data della PEC (da daticert.xml): <b>${fd(ctx.pecDate)}</b> — usata come data di notifica.</div>` : ''}
+    ${ctx.mailText ? `<div class="banner info small">📨 Messaggio PEC senza allegati: l'AI ha letto il testo della mail. Verranno archiviati lo zip originale e il testo in un file .txt.</div>` : ''}
+    ${ctx.pecDate && !ctx.ricevutaPec && !ctx.mailText ? `<div class="banner info small">📨 Data della PEC (da daticert.xml): <b>${fd(ctx.pecDate)}</b> — usata come data di notifica.</div>` : ''}
     <div class="small muted" style="margin-bottom:10px">${ctx.zipName ? `Zip: <b>${esc(ctx.zipName)}</b> · ${files.length} allegati${ctx.skipped?.length ? ` (scartati ${ctx.skipped.length} file non utili)` : ''}` : `File: <b>${esc(file.name)}</b>`} — controlla i dati proposti prima di confermare.</div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px">
       <label><input type="radio" name="rvMode" value="new" ${defaultMode === 'new' ? 'checked' : ''} ${ctx.multa ? 'disabled' : ''}> Crea una nuova multa</label>
@@ -1702,7 +1740,7 @@ function showReview(files, x, err, ctx, resolve) {
     for (const el of $$('[data-sv]')) if (el.checked) { const i = +el.dataset.sv; names.push({i, n: await saveFileToMulta(m, files[i], $(`[data-nm="${i}"]`).value.trim() || files[i].name)}); }
     return names;
   };
-  const mainIdx = Math.max(0, docInfo.findIndex(d => d.tipo === x.tipo_documento));
+  const mainIdx = ctx.mailText ? 0 : Math.max(0, docInfo.findIndex(d => d.tipo === x.tipo_documento));
   $('#rvOk').onclick = async () => {
     const btn = $('#rvOk'); btn.disabled = true;
     try {
@@ -1735,6 +1773,10 @@ function showReview(files, x, err, ctx, resolve) {
         const t = $('#rvEvTipo').value;
         let docName = ctx.alreadySaved || '';
         if (wantSave) { const names = savedNames = await saveAll(m); docName = (names.find(x => x.i === mainIdx) || names[0]).n; if (names.length > 1) m.eventi.push({id: uid('e'), tipo: 'nota', data: todayISO(), note: `Documenti archiviati: ${names.map(x => x.n).join(', ')}`}); }
+        if (t === '__none' && ctx.ricevutaPec && x.consegna) {
+          const re = evSorted(m).filter(e => (e.tipo === 'ricorso_prefetto' || e.tipo === 'ricorso_gdp') && !/^Bozza/.test(e.note || '')).pop();
+          if (re) { const add = `consegnata il ${fd(x.invio_data).slice(0, 5)}${x.invio_ora ? ' alle ' + x.invio_ora : ''}`; if (!(re.note || '').includes(add)) re.note = [re.note, add].filter(Boolean).join(' · '); if (docName) re.docs = [...(re.docs || []), docName].filter((v, i, a) => v !== re.doc && a.indexOf(v) === i); }
+        }
         if (t !== '__none') {
           const e = {id: uid('e'), tipo: t, data: $('#rvEvData').value || null};
           const imp = $('#rvEvImp').value; if (imp !== '') e.importo = Math.round(parseFloat(imp) * 100) / 100;
